@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xmen Fitness | Круглосуточный фитнес-клуб</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container header-container">
+            <div class="logo">
+                <a href="index.html">X<span>men</span></a>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="index.html" class="active">Главная</a></li>
+                    <li><a href="services.html">Услуги</a></li>
+                    <li><a href="products.html">Товары</a></li>
+                    <li><a href="trainers.html">Тренеры</a></li>
+                    <li><a href="schedule.html">Расписание</a></li>
+                </ul>
+            </nav>
+            <div class="auth-buttons" id="authButtons"></div>
+            <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container hero-content">
+                <h1>Добро пожаловать в Xmen</h1>
+                <p>Круглосуточный фитнес-клуб с передовыми технологиями доступа. Тренируйся в любое время!</p>
+                <a href="services.html" class="btn btn-large">Выбрать абонемент</a>
+            </div>
+        </section>
+
+        <section class="about">
+            <div class="container">
+                <h2>О клубе</h2>
+                <div class="about-grid">
+                    <div class="about-card">
+                        <h3>24/7 Доступ</h3>
+                        <p>Мы открыты для вас круглосуточно. Входите по Face ID или временному коду.</p>
+                    </div>
+                    <div class="about-card">
+                        <h3>Современное оборудование</h3>
+                        <p>Кардио-зона, силовые тренажеры, свободные веса – всё для ваших целей.</p>
+                    </div>
+                    <div class="about-card">
+                        <h3>Команда профессионалов</h3>
+                        <p>Сертифицированные тренеры помогут достичь результатов.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="preview-trainers">
+            <div class="container">
+                <h2>Наши тренеры</h2>
+                <div class="trainers-grid" id="trainersPreview"></div>
+                <div class="text-center">
+                    <a href="trainers.html" class="btn">Все тренеры</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="preview-products">
+            <div class="container">
+                <h2>Популярные товары</h2>
+                <div class="products-grid" id="productsPreview"></div>
+                <div class="text-center">
+                    <a href="products.html" class="btn">Все товары</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container footer-container">
+            <div class="footer-col">
+                <h4>Xmen Fitness</h4>
+                <p>Ваш путь к здоровью 24/7</p>
+            </div>
+            <div class="footer-col">
+                <h4>Контакты</h4>
+                <p>+7 (3952) 123-456</p>
+                <p>info@xmen.fit</p>
+                <p>г. Иркутск, ул. Спортивная, 1</p>
+            </div>
+            <div class="footer-col">
+                <h4>Соцсети</h4>
+                <p><a href="https://ok.ru" target="_blank" rel="noopener noreferrer">Одноклассники</a></p>
+                <p><a href="https://vk.com" target="_blank" rel="noopener noreferrer">VK</a></p>
+                <p><a href="https://t.me" target="_blank" rel="noopener noreferrer">Telegram</a></p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Xmen Fitness. Все права защищены.</p>
+        </div>
+    </footer>
+
+    <script src="js/auth.js"></script>
+<script src="js/main.js"></script>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTrainersPreview();
+            loadProductsPreview();
+        });
+    </script>
+</body>
+</html>

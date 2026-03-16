@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход | Xmen Fitness</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Подключаем библиотеку для маски телефона (IMask) -->
+    <script src="https://unpkg.com/imask"></script>
+</head>
+<body>
+    <header>
+        <div class="container header-container">
+            <div class="logo">
+                <a href="index.html">X<span>men</span></a>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Главная</a></li>
+                    <li><a href="services.html">Услуги</a></li>
+                    <li><a href="products.html">Товары</a></li>
+                    <li><a href="trainers.html">Тренеры</a></li>
+                    <li><a href="schedule.html">Расписание</a></li>
+                </ul>
+            </nav>
+            <div class="auth-buttons" id="authButtons"></div>
+            <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+        </div>
+    </header>
+
+    <main class="auth-page">
+        <div class="container">
+            <div class="auth-tabs">
+                <button class="tab-btn active" id="loginTab">Вход</button>
+                <button class="tab-btn" id="registerTab">Регистрация</button>
+            </div>
+            <div class="auth-form-container">
+                <!-- Форма входа -->
+                <div id="loginForm" class="auth-form active">
+                    <h2>Вход в личный кабинет</h2>
+                    <form id="loginFormElement">
+                        <div class="form-group">
+                            <label for="loginEmail">Email или телефон</label>
+                            <input type="text" id="loginEmail" placeholder="example@mail.ru или +7..." required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Пароль</label>
+                            <input type="password" id="loginPassword" placeholder="••••••••" required>
+                        </div>
+                        <button type="submit" class="btn btn-block">Войти</button>
+                    </form>
+                    <div class="demo-users">
+                        <p>Демо-пользователи:</p>
+                        <button class="demo-btn" data-email="ivan.p@example.com" data-pass="123">Админ</button>
+                        <button class="demo-btn" data-email="anna.s@example.com" data-pass="123">Тренер</button>
+                        <button class="demo-btn" data-email="elena.n@example.com" data-pass="123">Клиент</button>
+                        <button class="demo-btn" data-email="alexey.s@example.com" data-pass="123">Менеджер</button>
+                    </div>
+                </div>
+                <!-- Форма регистрации -->
+                <div id="registerForm" class="auth-form">
+                    <h2>Регистрация</h2>
+                    <form id="registerFormElement" novalidate>
+                        <div class="form-group">
+                            <label for="regName">ФИО</label>
+                            <input type="text" id="regName" placeholder="Иванов Иван Иванович" required>
+                            <div class="error-message" id="nameError"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="regPhone">Телефон</label>
+                            <input type="tel" id="regPhone" placeholder="+7 (999) 999-99-99" required>
+                            <div class="error-message" id="phoneError"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="regEmail">Email</label>
+                            <input type="email" id="regEmail" placeholder="example@mail.ru" required>
+                            <div class="error-message" id="emailError"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="regPassword">Пароль</label>
+                            <input type="password" id="regPassword" placeholder="••••••••" required>
+                            <div class="error-message" id="passwordError"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="regConfirm">Подтверждение пароля</label>
+                            <input type="password" id="regConfirm" placeholder="••••••••" required>
+                            <div class="error-message" id="confirmError"></div>
+                        </div>
+                        <button type="submit" class="btn btn-block">Зарегистрироваться</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container footer-container">
+            <div class="footer-col">
+                <h4>Xmen Fitness</h4>
+                <p>Ваш путь к здоровью 24/7</p>
+            </div>
+            <div class="footer-col">
+                <h4>Контакты</h4>
+                <p>+7 (3952) 123-456</p>
+                <p>info@xmen.fit</p>
+                <p>г. Иркутск, ул. Спортивная, 1</p>
+            </div>
+            <div class="footer-col">
+                <h4>Соцсети</h4>
+                <p><a href="https://ok.ru" target="_blank" rel="noopener noreferrer">Одноклассники</a></p>
+                <p><a href="https://vk.com" target="_blank" rel="noopener noreferrer">VK</a></p>
+                <p><a href="https://t.me" target="_blank" rel="noopener noreferrer">Telegram</a></p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Xmen Fitness. Все права защищены.</p>
+        </div>
+    </footer>
+
+    <script src="js/auth.js"></script>
+    <script src="js/main.js"></script>
+    <script>
+        // Переключение табов
+        document.getElementById('loginTab').addEventListener('click', function() {
+            document.getElementById('loginTab').classList.add('active');
+            document.getElementById('registerTab').classList.remove('active');
+            document.getElementById('loginForm').classList.add('active');
+            document.getElementById('registerForm').classList.remove('active');
+        });
+        document.getElementById('registerTab').addEventListener('click', function() {
+            document.getElementById('registerTab').classList.add('active');
+            document.getElementById('loginTab').classList.remove('active');
+            document.getElementById('registerForm').classList.add('active');
+            document.getElementById('loginForm').classList.remove('active');
+        });
+
+        // Обработка формы входа
+        document.getElementById('loginFormElement').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            if (await login(email, password)) {
+                window.location.href = 'profile.html';
+            }
+        });
+
+        // Демо-кнопки
+        document.querySelectorAll('.demo-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const email = this.dataset.email;
+                const pass = this.dataset.pass;
+                if (await login(email, pass)) {
+                    window.location.href = 'profile.html';
+                }
+            });
+        });
+
+        // Маска для телефона
+        const phoneInput = document.getElementById('regPhone');
+        const phoneMask = IMask(phoneInput, {
+            mask: '+{7} (000) 000-00-00',
+            lazy: false,
+            placeholderChar: '_'
+        });
+
+        // Функции валидации
+        function validateName(name) {
+            const nameRegex = /^[а-яА-ЯёЁa-zA-Z\s-]+$/;
+            return nameRegex.test(name);
+        }
+
+        function validateEmail(email) {
+            // Проверка на наличие @
+            if (!email.includes('@')) return false;
+            // Проверка допустимых символов (буквы, цифры, точка, дефис, подчёркивание)
+            const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+            return emailRegex.test(email);
+        }
+
+        function validatePassword(password) {
+            // Разрешены только латинские буквы, цифры, _, -
+            const passwordRegex = /^[a-zA-Z0-9_-]+$/;
+            return passwordRegex.test(password);
+        }
+
+        // Обработка регистрации
+        document.getElementById('registerFormElement').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // Очищаем предыдущие ошибки
+            document.querySelectorAll('.error-message').forEach(el => el.textContent = '');
+
+            const name = document.getElementById('regName').value.trim();
+            const phone = phoneMask.unmaskedValue; // получаем только цифры
+            const email = document.getElementById('regEmail').value.trim();
+            const password = document.getElementById('regPassword').value;
+            const confirm = document.getElementById('regConfirm').value;
+
+            let isValid = true;
+
+            // Валидация ФИО
+            if (!name) {
+                document.getElementById('nameError').textContent = 'Введите ФИО';
+                isValid = false;
+            } else if (!validateName(name)) {
+                document.getElementById('nameError').textContent = 'ФИО может содержать только буквы, пробелы и дефис';
+                isValid = false;
+            }
+
+            // Валидация телефона
+            if (!phone) {
+                document.getElementById('phoneError').textContent = 'Введите номер телефона';
+                isValid = false;
+            } else if (phone.length !== 10) {
+                document.getElementById('phoneError').textContent = 'Номер должен содержать 10 цифр после кода';
+                isValid = false;
+            }
+
+            // Валидация email
+            if (!email) {
+                document.getElementById('emailError').textContent = 'Введите email';
+                isValid = false;
+            } else if (!validateEmail(email)) {
+                document.getElementById('emailError').textContent = 'Некорректный email (допустимы буквы, цифры, . _ -)';
+                isValid = false;
+            }
+
+            // Валидация пароля
+            if (!password) {
+                document.getElementById('passwordError').textContent = 'Введите пароль';
+                isValid = false;
+            } else if (!validatePassword(password)) {
+                document.getElementById('passwordError').textContent = 'Пароль может содержать только латинские буквы, цифры, _ и -';
+                isValid = false;
+            }
+
+            // Валидация подтверждения
+            if (!confirm) {
+                document.getElementById('confirmError').textContent = 'Подтвердите пароль';
+                isValid = false;
+            } else if (password !== confirm) {
+                document.getElementById('confirmError').textContent = 'Пароли не совпадают';
+                isValid = false;
+            }
+
+            if (!isValid) return;
+
+            // Формируем номер для отправки в формате с +7
+            const fullPhone = '+7' + phone;
+
+            const regResult = await register(name, email, fullPhone, password);
+            if (!regResult.success) {
+                alert(regResult.error);
+                return;
+            }
+            // Регистрация успешна, автоматически выполняем вход
+            if (await login(email, password)) {
+                window.location.href = 'profile.html';
+            } else {
+                alert('Ошибка при автоматическом входе. Попробуйте войти вручную.');
+            }
+        });
+    </script>
+    <style>
+        .error-message {
+            color: #e74c3c;
+            font-size: 13px;
+            margin-top: 5px;
+        }
+    </style>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Товары | Xmen Fitness</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container header-container">
+            <div class="logo">
+                <a href="index.html">X<span>men</span></a>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Главная</a></li>
+                    <li><a href="services.html">Услуги</a></li>
+                    <li><a href="products.html" class="active">Товары</a></li>
+                    <li><a href="trainers.html">Тренеры</a></li>
+                    <li><a href="schedule.html">Расписание</a></li>
+                </ul>
+            </nav>
+            <div class="auth-buttons" id="authButtons"></div>
+            <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+        </div>
+    </header>
+
+    <main>
+        <section class="page-header">
+            <div class="container">
+                <h1>Фитнес-бар</h1>
+                <p>Спортивное питание, вода и полезные снеки</p>
+            </div>
+        </section>
+
+        <section class="products-list">
+            <div class="container">
+                <div class="filters-container">
+                    <div class="filter-group">
+                        <label for="productCategoryFilter">Категория:</label>
+                        <select id="productCategoryFilter">
+                            <option value="all">Все</option>
+                            <option value="snack">Снеки</option>
+                            <option value="drink">Напитки</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="productSortFilter">Сортировка:</label>
+                        <select id="productSortFilter">
+                            <option value="">По умолчанию</option>
+                            <option value="price_asc">Цена (возрастание)</option>
+                            <option value="price_desc">Цена (убывание)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="products-grid" id="productsGrid"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container footer-container">
+            <div class="footer-col">
+                <h4>Xmen Fitness</h4>
+                <p>Ваш путь к здоровью 24/7</p>
+            </div>
+            <div class="footer-col">
+                <h4>Контакты</h4>
+                <p>+7 (3952) 123-456</p>
+                <p>info@xmen.fit</p>
+                <p>г. Иркутск, ул. Спортивная, 1</p>
+            </div>
+            <div class="footer-col">
+                <h4>Соцсети</h4>
+                <p><a href="https://ok.ru" target="_blank" rel="noopener noreferrer">Одноклассники</a></p>
+                <p><a href="https://vk.com" target="_blank" rel="noopener noreferrer">VK</a></p>
+                <p><a href="https://t.me" target="_blank" rel="noopener noreferrer">Telegram</a></p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Xmen Fitness. Все права защищены.</p>
+        </div>
+    </footer>
+
+    <script src="js/auth.js"></script>
+<script src="js/main.js"></script>
+<div class="products-grid" id="productsGrid"></div>
+</body>
+</html>
