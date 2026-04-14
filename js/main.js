@@ -435,7 +435,7 @@ function closeBookingModal() {
     if (modal) modal.style.display = 'none';
 }
 
-window.confirmBooking = function() {
+window.confirmBooking = async function() {
     const selectedRadio = document.querySelector('input[name="bookingSlot"]:checked');
     if (!selectedRadio) {
         alert('Выберите время');
@@ -446,13 +446,25 @@ window.confirmBooking = function() {
     const end = selectedRadio.dataset.end;
     const startDate = new Date(start);
     const endDate = new Date(end);
-    const durationHours = (endDate - startDate) / (1000 * 60 * 60); // в часах
+    const durationHours = (endDate - startDate) / (1000 * 60 * 60);
     const price = Math.round(window.currentTrainerHourlyRate * durationHours);
 
     const formattedDate = startDate.toLocaleDateString('ru-RU');
     const formattedStart = startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const formattedEnd = endDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const timeRange = `${formattedStart} - ${formattedEnd}`;
+
+    // Запрос фото тренера
+    let trainerPhoto = '';
+    try {
+        const trainerRes = await fetch(`${API_URL}/trainers/${currentTrainerId}`);
+        if (trainerRes.ok) {
+            const trainerData = await trainerRes.json();
+            trainerPhoto = trainerData.photo || '';
+        }
+    } catch(e) {
+        console.error('Ошибка загрузки фото тренера:', e);
+    }
 
     addToCart({
         id: `trainer_${currentTrainerId}_${Date.now()}`,
@@ -466,7 +478,8 @@ window.confirmBooking = function() {
         sessionId: sessionId,
         trainerId: currentTrainerId,
         startTime: start,
-        endTime: end
+        endTime: end,
+        image: trainerPhoto || 'https://via.placeholder.com/80?text=Personal+Training'
     });
     closeBookingModal();
     if (typeof applyScheduleFiltersAndRender === 'function') {
@@ -648,16 +661,28 @@ window.bookSession = async function(sessionId, name, trainer, start) {
         return;
     }
     const startDate = new Date(start);
-    const endDate = new Date(session.end); // предполагаем, что у сессии есть поле end
+    const endDate = new Date(session.end);
     const formattedDate = startDate.toLocaleDateString('ru-RU');
     const formattedStart = startDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const formattedEnd = endDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const timeRange = `${formattedStart} - ${formattedEnd}`;
 
+    const hasActive = await checkActiveSubscription(user.id);
+    let price = session.price || 500;
+    if (hasActive) price = 0;
+
+    // Получаем фото тренера по имени
+    let trainerPhoto = '';
+    try {
+        const trainers = await fetchTrainers();
+        const foundTrainer = trainers.find(t => t.name === session.trainer);
+        if (foundTrainer && foundTrainer.photo) trainerPhoto = foundTrainer.photo;
+    } catch(e) { console.error(e); }
+
     addToCart({
         id: `session_${sessionId}_${Date.now()}`,
         name: session.name,
-        price: session.price || 500,
+        price: price,
         time: `${formattedDate} ${timeRange}`,
         timeRange: timeRange,
         date: formattedDate,
@@ -666,7 +691,8 @@ window.bookSession = async function(sessionId, name, trainer, start) {
         sessionId: sessionId,
         uniqueId: `session_${sessionId}`,
         startTime: start,
-        endTime: session.end
+        endTime: session.end,
+        image: trainerPhoto || 'https://via.placeholder.com/80?text=Group+Training'
     });
     applyScheduleFiltersAndRender();
 };
@@ -690,10 +716,49 @@ document.addEventListener('click', function(e) {
     }
 });
 
+// Загрузка публичных настроек и обновление элементов на странице
+async function loadPublicSettings() {
+    try {
+        const res = await fetch(`${API_URL}/public-settings`);
+        if (!res.ok) return;
+        const settings = await res.json();
+        
+        // Обновляем информацию о часах работы персонала на главной странице
+        const supportHoursElem = document.getElementById('supportWorkHours');
+        if (supportHoursElem && settings.support_work_hours) {
+            supportHoursElem.innerText = settings.support_work_hours;
+        }
+        
+        // Обновляем контакты в подвале (если они есть)
+        const footerPhone = document.getElementById('footerPhone');
+        if (footerPhone && settings.contact_phone) {
+            footerPhone.innerText = settings.contact_phone;
+        }
+        const footerEmail = document.getElementById('footerEmail');
+        if (footerEmail && settings.contact_email) {
+            footerEmail.innerText = settings.contact_email;
+        }
+        const footerAddress = document.getElementById('footerAddress');
+        if (footerAddress && settings.contact_address) {
+            footerAddress.innerText = settings.contact_address;
+        }
+        
+        // Часы работы клуба (можно добавить на страницу)
+        const clubHoursElem = document.getElementById('clubWorkHours');
+        if (clubHoursElem && settings.club_work_hours) {
+            clubHoursElem.innerText = settings.club_work_hours;
+        }
+    } catch (err) {
+        console.error('Ошибка загрузки публичных настроек:', err);
+    }
+}
+
+
 window.loadUserBookings = loadUserBookings;
 window.applyScheduleFiltersAndRender = applyScheduleFiltersAndRender;
 
 document.addEventListener('DOMContentLoaded', function() {
+    loadPublicSettings();
     updateHeader();
 
     const mobileBtn = document.getElementById('mobileMenuBtn');
