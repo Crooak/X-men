@@ -1,5 +1,3 @@
-// js/profile.js
-
 let _allVisits = [];
 let _allTrainings = [];
 let _allOrders = [];
@@ -153,8 +151,8 @@ async function renderProfile(user) {
         </div>
     ` : ''}
     <div>
-        <span class="profile-name">${user.name}</span>
-        <span class="profile-role">${getRoleNameShort(user.role)}</span>
+        <span class="profile-name">${escapeHtml(user.name)}</span>
+<span class="profile-role">${escapeHtml(getRoleNameShort(user.role))}</span>
     </div>
 </div>
                 <div class="profile-info-items">
@@ -165,10 +163,10 @@ async function renderProfile(user) {
 html += `
     <div class="profile-info-item">
         <strong>Текущий абонемент</strong>
-        ${user.hasActive 
-            ? `<div><span>${user.subscriptionName}</span></div>
-               <div><span>до ${endDateStr}</span></div>`
-            : '<span>Нет активного абонемента</span>'}
+${user.hasActive 
+    ? `<div><span>${escapeHtml(user.subscriptionName)}</span></div>
+       <div><span>до ${endDateStr}</span></div>`
+    : '<span>Нет активного абонемента</span>'}
     </div>
     <div class="profile-info-item">
         <strong>Код доступа</strong>
@@ -192,7 +190,7 @@ html += `
                     <strong>Специализации</strong>
                     <button class="btn btn-sm" onclick="editTrainerSpecializations()">✎</button>
                 </div>
-                <span>${_trainerSpecializations.map(s => s.name).join(', ') || 'Не указаны'}</span>
+               <span>${escapeHtml(_trainerSpecializations.map(s => s.name).join(', ') || 'Не указаны')}</span>
             </div>
             <div class="profile-info-item" id="rating-item">
                 <strong>Рейтинг</strong>
@@ -203,7 +201,7 @@ html += `
                     <strong>О себе</strong>
                     <button class="btn btn-sm" onclick="editBio()">✎</button>
                 </div>
-                <p>${user.bio || 'Пока нет описания'}</p>
+                <p>${escapeHtml(user.bio || 'Пока нет описания')}</p>
             </div>
         </div>
     `;
@@ -218,9 +216,9 @@ html += `
                 <span>${_allUsers.filter(u => u.role === 'Клиент' && u.is_active).length}</span>
             </div>
             <div class="profile-info-item">
-                <strong>Посещений сегодня</strong>
-                <span>67</span>
-            </div>
+    <strong>Посещений сайта сегодня</strong>
+    <span id="todayVisitsCount">Загрузка...</span>
+</div>
         `;
     } else if (user.role === 'Менеджер') {
     html += `
@@ -267,48 +265,85 @@ html += `</div>`; // закрываем profile-left
 
     container.innerHTML = html;
 
-if (user.role === 'Администратор') {
+    // После вставки HTML вызываем функции инициализации для каждой роли
+    if (user.role === 'Администратор') {
+        // Обновляем данные для администратора (на случай, если они не были загружены)
         _allServices = await fetchAllSubscriptions();
-    _allProducts = await fetchProducts();
-    _allUsers = await fetchAllUsers();
-    refreshAdminUsers();
-    filterAdminServices();
-    filterAdminProducts();
-     refreshAdminSettings();
-     filterAdminLogs();
-     loadBackupsList();
-}
-
+        _allProducts = await fetchProducts();
+        _allUsers = await fetchAllUsers();
+        refreshAdminUsers();
+        filterAdminServices();
+        filterAdminProducts();
+        refreshAdminSettings();
+        filterAdminLogs();
+        loadBackupsList();
+        loadTodayVisits();
+    }
 
     if (user.role === 'Менеджер') {
-    refreshManagerTrainings();
-}
+        // Даем DOM время обновиться, затем обновляем таблицы
+        setTimeout(() => {
+            refreshManagerTrainings();
+            refreshManagerServices();
+        }, 0);
+    }
+
     addScrollToTopButton();
+}
+
+
+async function performImageUploadForModal(fileInputId, previewImgId) {
+    const fileInput = document.getElementById(fileInputId);
+    const file = fileInput.files[0];
+    if (!file) return null;
+    // Предпросмотр
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const preview = document.getElementById(previewImgId);
+        if (preview) {
+            preview.src = e.target.result;
+            const previewContainer = document.getElementById(previewImgId.replace('Img', ''));
+            if (previewContainer) previewContainer.style.display = 'block';
+        }
+    };
+    reader.readAsDataURL(file);
+    // Загрузка на сервер
+    try {
+        const url = await uploadImage(file);
+        return url;
+    } catch (err) {
+        alert('Ошибка загрузки: ' + err.message);
+        return null;
+    }
 }
 
 
 window.editProfile = function() {
     const user = getCurrentUser();
-    // Добавляем поле для фото (URL)
+    const isTrainer = user.role === 'Тренер';
+    
+    let photoHtml = '';
+    if (isTrainer) {
+        photoHtml = `<div class="form-group"><label>Фото профиля</label><div id="profileImageUploader"></div></div>`;
+    } else {
+        photoHtml = `<input type="hidden" id="editPhotoUrl" value="${user.photo || ''}">`;
+    }
+    
     const content = `
         <form id="editProfileForm">
             <div class="form-group">
                 <label>ФИО</label>
-                <input type="text" id="editFullName" value="${user.name}" required pattern="[А-Яа-яA-Za-z\\s-]+" title="Только буквы, пробел и дефис">
+                <input type="text" id="editFullName" value="${escapeHtml(user.name)}" required pattern="[А-Яа-яA-Za-z\\s-]+" title="Только буквы, пробел и дефис">
             </div>
             <div class="form-group">
                 <label>Email</label>
-                <input type="email" id="editEmail" value="${user.email}" required>
+                <input type="email" id="editEmail" value="${escapeHtml(user.email)}" required>
             </div>
             <div class="form-group">
                 <label>Телефон</label>
-                <input type="tel" id="editPhone" value="${user.phone}" required placeholder="+7 (999) 999-99-99">
+                <input type="tel" id="editPhone" value="${escapeHtml(user.phone)}" required placeholder="+7 (999) 999-99-99">
             </div>
-            <div class="form-group">
-                <label>Фото (URL)</label>
-                <input type="url" id="editPhotoUrl" value="${user.photo || ''}" placeholder="https://example.com/photo.jpg">
-                <small>Введите прямую ссылку на изображение</small>
-            </div>
+            ${photoHtml}
             <div class="form-group">
                 <label>Новый пароль (оставьте пустым, если не хотите менять)</label>
                 <input type="password" id="editNewPassword" placeholder="Новый пароль">
@@ -325,96 +360,57 @@ window.editProfile = function() {
     `;
 
     openModal('Редактирование профиля', content, async () => {
+        let photoUrl = document.getElementById('editPhotoUrl')?.value || '';
+        if (isTrainer) {
+            // URL уже лежит в поле, которое создал initImageUploader
+            photoUrl = document.getElementById('editPhotoUrl')?.value || '';
+        }
+        
         const newName = document.getElementById('editFullName').value;
         const newEmail = document.getElementById('editEmail').value;
-        const newPhone = document.getElementById('editPhone').value;
-        const newPhoto = document.getElementById('editPhotoUrl').value;
+        const newPhoneRaw = document.getElementById('editPhone').value;
         const newPass = document.getElementById('editNewPassword').value;
         const newPassConfirm = document.getElementById('editNewPasswordConfirm').value;
         const currentPass = document.getElementById('editCurrentPassword').value;
-
-        // Валидации (без изменений)
+        
         const nameRegex = /^[А-Яа-яA-Za-z\s-]+$/;
-        if (!nameRegex.test(newName)) {
-            alert('ФИО может содержать только буквы, пробел и дефис');
-            return;
-        }
-        if (!newEmail.includes('@') || !newEmail.includes('.')) {
-            alert('Введите корректный email');
-            return;
-        }
-        const phoneDigits = newPhone.replace(/\D/g, '');
-        if (phoneDigits.length !== 11 && phoneDigits.length !== 10) {
-            alert('Введите корректный номер телефона (10 или 11 цифр)');
-            return;
-        }
+        if (!nameRegex.test(newName)) { alert('ФИО может содержать только буквы, пробел и дефис'); return; }
+        if (!newEmail.includes('@') || !newEmail.includes('.')) { alert('Введите корректный email'); return; }
+        const phoneDigits = newPhoneRaw.replace(/\D/g, '');
+        if (phoneDigits.length !== 11 && phoneDigits.length !== 10) { alert('Введите корректный номер телефона'); return; }
         const normalizedPhone = phoneDigits.length === 11 ? phoneDigits : '7' + phoneDigits;
-
+        
         if (newPass || newPassConfirm) {
-            if (newPass !== newPassConfirm) {
-                alert('Новый пароль и подтверждение не совпадают');
-                return;
-            }
-            if (newPass.length < 4) {
-                alert('Пароль должен быть не менее 4 символов');
-                return;
-            }
-            if (!currentPass) {
-                alert('Введите текущий пароль');
-                return;
-            }
+            if (newPass !== newPassConfirm) { alert('Новый пароль и подтверждение не совпадают'); return; }
+            if (newPass.length < 4) { alert('Пароль должен быть не менее 4 символов'); return; }
+            if (!currentPass) { alert('Введите текущий пароль'); return; }
         }
-
-        const data = {
-            full_name: newName,
-            email: newEmail,
-            phone: normalizedPhone,
-            photo_url: newPhoto  // добавляем фото
-        };
-        if (newPass) {
-            data.newPassword = newPass;
-            data.currentPassword = currentPass;
-        }
-
+        
+        const data = { full_name: newName, email: newEmail, phone: normalizedPhone, photo_url: photoUrl };
+        if (newPass) { data.newPassword = newPass; data.currentPassword = currentPass; }
+        
         const result = await updateUserData(user.id, data);
-        if (!result.success) {
-            alert(result.error || 'Ошибка обновления');
-            return;
-        }
-
-        // Обновляем локального пользователя
+        if (!result.success) { alert(result.error || 'Ошибка обновления'); return; }
+        
         user.name = result.user.full_name;
         user.email = result.user.email;
         user.phone = result.user.phone;
-        user.photo = result.user.photo_url; // сохраняем фото
+        user.photo = result.user.photo_url;
         setCurrentUser(user);
-
-        // Обновляем отображение имени в шапке и в профиле
-        const nameSpan = document.querySelector('.profile-name');
-        if (nameSpan) nameSpan.innerText = user.name;
-        
-        // Если пользователь - тренер, обновляем также фото в карточке профиля (если есть)
-        if (user.role === 'Тренер') {
-            const profilePhoto = document.querySelector('.profile-photo img');
-            if (profilePhoto && user.photo) profilePhoto.src = user.photo;
-        }
-
         if (typeof updateHeader === 'function') updateHeader();
-
         alert('Данные обновлены');
         closeModal();
+        renderProfile(user);
     });
-
-    // Обработка маски телефона (без изменений)
+    
+    // Маска телефона и управление полем пароля
     setTimeout(() => {
         const phoneInput = document.getElementById('editPhone');
         if (phoneInput) {
             phoneInput.addEventListener('input', function(e) {
                 let value = e.target.value.replace(/\D/g, '');
                 if (value.length > 0) {
-                    if (value[0] === '7' || value[0] === '8') {
-                        value = value.substring(1);
-                    }
+                    if (value[0] === '7' || value[0] === '8') value = value.substring(1);
                     const match = value.match(/^(\d{0,3})(\d{0,3})(\d{0,2})(\d{0,2})$/);
                     if (match) {
                         let formatted = '';
@@ -427,7 +423,6 @@ window.editProfile = function() {
                 }
             });
         }
-
         const newPassInput = document.getElementById('editNewPassword');
         const newPassConfirmInput = document.getElementById('editNewPasswordConfirm');
         const currentPassGroup = document.getElementById('currentPasswordGroup');
@@ -444,7 +439,12 @@ window.editProfile = function() {
             newPassInput.addEventListener('input', toggleCurrentPass);
             newPassConfirmInput.addEventListener('input', toggleCurrentPass);
         }
-    }, 100);
+        
+        if (isTrainer) {
+            // Инициализируем загрузчик фото с текущим URL
+            initImageUploader('profileImageUploader', 'editPhotoUrl', 'profilePhotoPreview', user.photo || '');
+        }
+    }, 200);
 };
 
 window.editTrainerSpecializations = async function() {
@@ -518,24 +518,25 @@ function getNavItems(role) {
             { id: 'logout', label: 'Выйти' }
         ],
         'Менеджер': [
-            { id: 'manage-specializations', label: 'Управление специализациями' },
-            { id: 'manage-clients', label: 'Управление клиентами' },
-            { id: 'manage-schedule', label: 'Управление расписанием' },
-            { id: 'manage-products', label: 'Управление товарами' },
-            { id: 'manage-services', label: 'Управление услугами' },
-            { id: 'guest-code', label: 'Генерация гостевого кода' },
-            { id: 'logout', label: 'Выйти' }
-        ],
+    { id: 'manage-clients', label: 'Управление клиентами' },
+    { id: 'manage-schedule', label: 'Управление расписанием' },
+    { id: 'manage-products', label: 'Управление товарами' },
+    { id: 'manage-services', label: 'Управление услугами' },
+    { id: 'manage-specializations', label: 'Управление специализациями' },
+    { id: 'guest-code', label: 'Генерация гостевого кода' },
+    { id: 'logout', label: 'Выйти' }
+],
         'Администратор': [
-            { id: 'manage-specializations', label: 'Управление специализациями' },
-            { id: 'manage-users', label: 'Управление пользователями' },
-            { id: 'manage-products', label: 'Управление товарами' },
-            { id: 'manage-services', label: 'Управление услугами' },
-            { id: 'settings', label: 'Настройки системы' },
-            { id: 'logs', label: 'Просмотр логов' },
-            { id: 'backup', label: 'Резервное копирование' },
-            { id: 'logout', label: 'Выйти' }
-        ]
+    { id: 'manage-users', label: 'Управление пользователями' },
+    { id: 'manage-products', label: 'Управление товарами' },
+    { id: 'manage-services', label: 'Управление услугами' },
+    { id: 'manage-specializations', label: 'Управление специализациями' },
+    { id: 'settings', label: 'Настройки системы' },
+    { id: 'logs', label: 'Просмотр логов' },
+    { id: 'backup', label: 'Резервное копирование' },
+    { id: 'report', label: 'Отчетность' },
+    { id: 'logout', label: 'Выйти' }
+]
     };
     return items[role] || [];
 }
@@ -1727,17 +1728,32 @@ window.filterGroupSessions = async function() {
     await loadGroupSessions();
 };
 
-    async function renderManagerSections() {
-        const specializations = await fetchAllSpecializations();
+async function renderManagerSections() {
+    const specializations = await fetchAllSpecializations();
 
     setTimeout(() => {
-    const typeFilter = document.getElementById('scheduleTypeFilterManager');
-    const groupContainer = document.getElementById('groupTypeFilterManagerContainer');
-    if (typeFilter) {
-        typeFilter.dispatchEvent(new Event('change'));
+    const guestPhoneInput = document.getElementById('guestPhone');
+    if (guestPhoneInput && !guestPhoneInput.hasAttribute('data-mask-initialized')) {
+        guestPhoneInput.setAttribute('data-mask-initialized', 'true');
+        guestPhoneInput.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length > 0) {
+                if (value[0] === '7' || value[0] === '8') value = value.substring(1);
+                if (value.length > 10) value = value.substring(0, 10);
+                const match = value.match(/^(\d{0,3})(\d{0,3})(\d{0,2})(\d{0,2})$/);
+                if (match) {
+                    let formatted = '';
+                    if (match[1]) formatted = `+7 (${match[1]}`;
+                    if (match[2]) formatted += `) ${match[2]}`;
+                    if (match[3]) formatted += `-${match[3]}`;
+                    if (match[4]) formatted += `-${match[4]}`;
+                    e.target.value = formatted;
+                }
+            } else {
+                e.target.value = '';
+            }
+        });
     }
-    refreshManagerTrainings();
-    refreshManagerServices();  // <-- добавлено для загрузки услуг
 }, 100);
 
     return `
@@ -1890,15 +1906,52 @@ window.filterGroupSessions = async function() {
     <div id="guestCodeResult" style="margin-top:20px;"></div>
 </div>
     `;
-
-    setTimeout(() => {
-    filterManagerServices();
-}, 100);
 }
 
+window.exportReport = function() {
+    window.open(`${API_URL}/admin/export-report`, '_blank');
+};
+
+// ================== ИСПРАВЛЕННАЯ ФУНКЦИЯ filterManagerServices ==================
 window.filterManagerServices = function() {
     const search = document.getElementById('managerServiceFilter')?.value.toLowerCase() || '';
     const status = document.getElementById('managerServiceStatusFilter')?.value || 'all';
+    let filtered = [..._allServices];
+    if (search) filtered = filtered.filter(s => s.name.toLowerCase().includes(search));
+    if (status === 'active') filtered = filtered.filter(s => s.is_active === true);
+    else if (status === 'inactive') filtered = filtered.filter(s => s.is_active === false);
+    const container = document.getElementById('managerServicesTable');
+    if (container) {
+        buildManagerServicesTable(filtered).then(html => container.innerHTML = html);
+    } else {
+        console.warn('Контейнер managerServicesTable не найден в DOM');
+    }
+};
+
+// ================== ИСПРАВЛЕННАЯ ФУНКЦИЯ refreshManagerServices ==================
+async function refreshManagerServices() {
+    _allServices = await fetchAllSubscriptions();
+    // Даём DOM время обновиться после закрытия модального окна
+    setTimeout(() => {
+        if (typeof window.filterManagerServices === 'function') {
+            window.filterManagerServices();
+        }
+    }, 50);
+}
+
+async function refreshAdminServices() {
+    _allServices = await fetchAllSubscriptions();
+    setTimeout(() => {
+        if (typeof window.filterAdminServices === 'function') {
+            window.filterAdminServices();
+        }
+    }, 50);
+}
+
+// ================== ФУНКЦИЯ ДЛЯ АДМИНИСТРАТОРА (оставляем как есть, но добавим проверку) ==================
+window.filterAdminServices = function() {
+    const search = document.getElementById('adminServiceFilter')?.value.toLowerCase() || '';
+    const status = document.getElementById('adminServiceStatusFilter')?.value || 'all';
     let filtered = [..._allServices];
     if (search) {
         filtered = filtered.filter(s => s.name.toLowerCase().includes(search));
@@ -1908,16 +1961,13 @@ window.filterManagerServices = function() {
     } else if (status === 'inactive') {
         filtered = filtered.filter(s => s.is_active === false);
     }
-    const container = document.getElementById('managerServicesTable');
+    const container = document.getElementById('adminServicesTable');
     if (container) {
         buildManagerServicesTable(filtered).then(html => container.innerHTML = html);
+    } else {
+        console.warn('Контейнер adminServicesTable не найден в DOM');
     }
 };
-
-async function refreshManagerServices() {
-    _allServices = await fetchAllSubscriptions();
-    filterManagerServices();
-}
 
 window.addServiceItem = async function() {
     const accessTypes = await fetchAllSubscriptionAccessTypes();
@@ -1951,13 +2001,17 @@ window.addServiceItem = async function() {
         const res = await fetch(`${API_URL}/subscriptions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description, duration, price, access, is_active })
+            body: JSON.stringify({ name, description, duration, price, access, is_active, user_id: getCurrentUser()?.id })
         });
 
         if (res.ok) {
             alert('Услуга добавлена');
-            _allServices = await fetchAllSubscriptions();
-            filterManagerServices();
+            const user = getCurrentUser();
+            if (user.role === 'Менеджер') {
+                await refreshManagerServices();
+            } else if (user.role === 'Администратор') {
+                await refreshAdminServices();
+            }
             closeModal();
         } else {
             const err = await res.json();
@@ -1983,6 +2037,7 @@ async function buildManagerServicesTable(services) {
                 </td>
             </tr>`).join('')}</tbody></table>`;
 }
+
 
 document.addEventListener('change', function(e) {
     if (e.target.id === 'scheduleTypeFilterManager') {
@@ -2144,6 +2199,12 @@ async function renderAdminSections() {
             </tbody>
         </table>
     </div>
+</div>
+
+<div class="profile-section" id="report">
+    <h3>Отчетность</h3>
+    <button class="btn" onclick="exportReport()">Выгрузить отчет (Excel)</button>
+    <p class="text-muted" style="margin-top: 10px;">Отчет включает общую статистику, данные по клиентам, тренерам, менеджерам и продажам.</p>
 </div>
     `;
 }
@@ -2789,24 +2850,8 @@ window.filterAdminProducts = function() {
     }
 };
 
-// Фильтрация услуг для администратора
-window.filterAdminServices = function() {
-    const search = document.getElementById('adminServiceFilter')?.value.toLowerCase() || '';
-    const status = document.getElementById('adminServiceStatusFilter')?.value || 'all';
-    let filtered = [..._allServices];
-    if (search) {
-        filtered = filtered.filter(s => s.name.toLowerCase().includes(search));
-    }
-    if (status === 'active') {
-        filtered = filtered.filter(s => s.is_active === true);
-    } else if (status === 'inactive') {
-        filtered = filtered.filter(s => s.is_active === false);
-    }
-    const container = document.getElementById('adminServicesTable');
-    if (container) {
-        buildManagerServicesTable(filtered).then(html => container.innerHTML = html);
-    }
-};
+// Фильтрация услуг для администратора (уже есть выше, но оставляем)
+// window.filterAdminServices определена выше
 
 window.filterAdminSettings = function() {
     const filter = document.getElementById('adminSettingsFilter')?.value.toLowerCase() || '';
@@ -2846,7 +2891,90 @@ window.filterGuestClients = function() {
     });
 };
 
-window.uploadPhoto = () => alert('Загрузка фото (имитация)');
+// ========== Face ID загрузка фото (только файл) ==========
+window.uploadPhoto = function() {
+    openFaceIdUploadModal();
+};
+
+function openFaceIdUploadModal() {
+    const user = getCurrentUser();
+    const savedFaceIdUrl = user ? localStorage.getItem(`faceid_${user.id}`) : null;
+    
+    const content = `
+        <div id="faceIdUploadContainer">
+            <div class="form-group">
+                <label>Загрузите фото для Face ID</label>
+                <div id="faceIdUploader"></div>
+                <small>Выберите файл (максимум 5 МБ). Фото будет загружено на сервер в папку FaceID.</small>
+            </div>
+        </div>
+    `;
+    openModal('Загрузка фото Face ID', content, async () => {
+        closeModal();
+    });
+    
+    setTimeout(() => {
+        initFaceIdUploader(savedFaceIdUrl);
+    }, 200);
+}
+
+function initFaceIdUploader(savedUrl) {
+    const container = document.getElementById('faceIdUploader');
+    if (!container) return;
+    // Разрешаем переинициализацию при каждом открытии, чтобы обновить URL
+    // container.dataset.initialized = 'true'; // удаляем эту строку, чтобы окно обновлялось
+    const user = getCurrentUser();
+    
+    container.innerHTML = `
+        <div class="image-upload-wrapper">
+            <div class="file-input-area">
+                <label class="btn btn-sm file-upload-label">Выбрать файл
+                    <input type="file" id="faceIdFile" accept="image/*" style="display:none">
+                </label>
+                <div id="faceIdPreview" class="image-preview" style="display:${savedUrl ? 'block' : 'none'}">
+                    <img id="faceIdPreviewImg" class="preview-img" src="${savedUrl || ''}">
+                    <span class="remove-preview" title="Удалить">✖</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    const fileInput = document.getElementById('faceIdFile');
+    const previewDiv = document.getElementById('faceIdPreview');
+    const previewImg = document.getElementById('faceIdPreviewImg');
+    const removeBtn = container.querySelector('.remove-preview');
+    
+    fileInput.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            previewImg.src = ev.target.result;
+            previewDiv.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+        
+        try {
+            const uploadedUrl = await uploadFaceIdImage(file);
+            if (user) localStorage.setItem(`faceid_${user.id}`, uploadedUrl);
+            alert('Фото успешно загружено на сервер. Можете закрыть окно.');
+        } catch (err) {
+            alert('Ошибка загрузки: ' + err.message);
+            previewDiv.style.display = 'none';
+            fileInput.value = '';
+        }
+    });
+    
+    if (removeBtn) {
+        removeBtn.addEventListener('click', () => {
+            previewDiv.style.display = 'none';
+            fileInput.value = '';
+            if (user) localStorage.removeItem(`faceid_${user.id}`);
+        });
+    }
+}
 
 window.cancelTraining = async function(bookingId) {
     const training = _allTrainings.find(t => t.id === bookingId);
@@ -3054,7 +3182,7 @@ window.addProductItem = async function() {
     const categories = await fetchProductCategories();
     const datalistId = 'categoryList';
     const datalistHtml = `<datalist id="${datalistId}">${categories.map(c => `<option value="${c}">`).join('')}</datalist>`;
-
+    
     const content = `
         <form id="addProductForm">
             <div class="form-group"><label>Название</label><input type="text" id="prodName" required></div>
@@ -3066,10 +3194,13 @@ window.addProductItem = async function() {
                 <input type="text" id="prodCategory" list="${datalistId}" placeholder="Выберите или введите новую">
                 ${datalistHtml}
             </div>
-            <div class="form-group"><label>Изображение (URL)</label><input type="text" id="prodImage"></div>
+            <div class="form-group">
+                <label>Изображение товара</label>
+                <div id="productImageUploader"></div>
+            </div>
         </form>
     `;
-
+    
     openModal('Добавление товара', content, async () => {
         const name = document.getElementById('prodName').value;
         const description = document.getElementById('prodDesc').value;
@@ -3077,16 +3208,15 @@ window.addProductItem = async function() {
         const unit = document.getElementById('prodUnit').value;
         const stock = parseInt(document.getElementById('prodStock').value);
         const category = document.getElementById('prodCategory').value;
-        const image = document.getElementById('prodImage').value;
-
-        if (!name || !price) return alert('Заполните название и цену');
-
+        const imageUrl = document.getElementById('prodImage').value;
+        
+        if (!name || !price) { alert('Заполните название и цену'); return; }
+        
         const res = await fetch(`${API_URL}/products`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description, price, unit, stock, image, category })
+            body: JSON.stringify({ name, description, price, unit, stock, image: imageUrl, category })
         });
-
         if (res.ok) {
             alert('Товар добавлен');
             await refreshManagerProducts();
@@ -3096,32 +3226,39 @@ window.addProductItem = async function() {
             alert('Ошибка: ' + err.error);
         }
     });
+    
+    setTimeout(() => {
+        initImageUploader('productImageUploader', 'prodImage', 'prodImagePreview', '');
+    }, 200);
 };
 
 window.editProduct = async function(productId) {
     const products = await fetchProducts();
     const product = products.find(p => p.id === productId);
     if (!product) return alert('Товар не найден');
-
+    
     const categories = await fetchProductCategories();
     const datalistId = 'categoryList';
     const datalistHtml = `<datalist id="${datalistId}">${categories.map(c => `<option value="${c}">`).join('')}</datalist>`;
-
+    
     const content = `
         <form id="editProductForm">
-            <div class="form-group"><label>Название</label><input type="text" id="prodName" value="${product.name}" required></div>
-            <div class="form-group"><label>Описание</label><textarea id="prodDesc">${product.description || ''}</textarea></div>
+            <div class="form-group"><label>Название</label><input type="text" id="prodName" value="${escapeHtml(product.name)}" required></div>
+            <div class="form-group"><label>Описание</label><textarea id="prodDesc">${escapeHtml(product.description || '')}</textarea></div>
             <div class="form-group"><label>Цена</label><input type="number" id="prodPrice" value="${product.price}" step="0.01" required></div>
-            <div class="form-group"><label>Единица</label><input type="text" id="prodUnit" value="${product.unit || 'шт'}"></div>
+            <div class="form-group"><label>Единица</label><input type="text" id="prodUnit" value="${escapeHtml(product.unit || 'шт')}"></div>
             <div class="form-group"><label>Количество</label><input type="number" id="prodStock" value="${product.stock}"></div>
             <div class="form-group"><label>Категория</label>
-                <input type="text" id="prodCategory" list="${datalistId}" value="${product.category || ''}" placeholder="Выберите или введите новую">
+                <input type="text" id="prodCategory" list="${datalistId}" value="${escapeHtml(product.category || '')}" placeholder="Выберите или введите новую">
                 ${datalistHtml}
             </div>
-            <div class="form-group"><label>Изображение (URL)</label><input type="text" id="prodImage" value="${product.image || ''}"></div>
+            <div class="form-group">
+                <label>Изображение товара</label>
+                <div id="productImageUploader"></div>
+            </div>
         </form>
     `;
-
+    
     openModal('Редактирование товара', content, async () => {
         const name = document.getElementById('prodName').value;
         const description = document.getElementById('prodDesc').value;
@@ -3129,14 +3266,13 @@ window.editProduct = async function(productId) {
         const unit = document.getElementById('prodUnit').value;
         const stock = parseInt(document.getElementById('prodStock').value);
         const category = document.getElementById('prodCategory').value;
-        const image = document.getElementById('prodImage').value;
-
+        const imageUrl = document.getElementById('prodImage').value;
+        
         const res = await fetch(`${API_URL}/products/${productId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description, price, unit, stock, image, category })
+            body: JSON.stringify({ name, description, price, unit, stock, image: imageUrl, category })
         });
-
         if (res.ok) {
             alert('Товар обновлён');
             await refreshManagerProducts();
@@ -3145,6 +3281,10 @@ window.editProduct = async function(productId) {
             alert('Ошибка');
         }
     });
+    
+    setTimeout(() => {
+        initImageUploader('productImageUploader', 'prodImage', 'prodImagePreview', product.image || '');
+    }, 200);
 };
 
 window.deleteProduct = async function(productId) {
@@ -3176,43 +3316,6 @@ async function refreshManagerProducts() {
         adminProductsTable.innerHTML = buildManagerProductsTable(_allProducts);
     }
 }
-
-
-window.addServiceItem = function() {
-    const content = `
-        <form id="addServiceForm">
-            <div class="form-group"><label>Название</label><input type="text" id="servName" required></div>
-            <div class="form-group"><label>Описание</label><textarea id="servDesc"></textarea></div>
-            <div class="form-group"><label>Цена</label><input type="number" id="servPrice" step="0.01" required></div>
-            <div class="form-group"><label>Срок (дней)</label><input type="number" id="servDuration" required></div>
-            <div class="form-group"><label>Тип доступа</label><input type="text" id="servAccess" value="полный доступ"></div>
-        </form>
-    `;
-
-    openModal('Добавление услуги', content, async () => {
-        const name = document.getElementById('servName').value;
-        const description = document.getElementById('servDesc').value;
-        const price = parseFloat(document.getElementById('servPrice').value);
-        const duration = parseInt(document.getElementById('servDuration').value);
-        const access = document.getElementById('servAccess').value;
-
-        if (!name || !price || !duration) return alert('Заполните все поля');
-
-        const res = await fetch(`${API_URL}/subscriptions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description, duration, price, access, is_active: true })
-        });
-
-        if (res.ok) {
-            alert('Услуга добавлена');
-            await refreshManagerServices();
-            closeModal();
-        } else {
-            alert('Ошибка');
-        }
-    });
-};
 
 window.editService = async function(serviceId) {
     const services = await fetchAllSubscriptions();
@@ -3250,27 +3353,40 @@ window.editService = async function(serviceId) {
         const res = await fetch(`${API_URL}/subscriptions/${serviceId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, description, duration, price, access, is_active })
+            body: JSON.stringify({ name, description, duration, price, access, is_active, user_id: getCurrentUser()?.id })
         });
 
         if (res.ok) {
             alert('Услуга обновлена');
-            _allServices = await fetchAllSubscriptions();
-            filterManagerServices();
+            const user = getCurrentUser();
+            if (user.role === 'Менеджер') {
+                await refreshManagerServices();
+            } else if (user.role === 'Администратор') {
+                await refreshAdminServices();
+            }
             closeModal();
         } else {
-            alert('Ошибка');
+            const err = await res.json();
+            alert('Ошибка: ' + err.error);
         }
     });
 };
 
 window.deleteService = async function(serviceId) {
     if (!confirm('Удалить услугу?')) return;
-    const res = await fetch(`${API_URL}/subscriptions/${serviceId}`, { method: 'DELETE' });
+    const res = await fetch(`${API_URL}/subscriptions/${serviceId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: getCurrentUser()?.id })
+    });
     if (res.ok) {
         alert('Услуга удалена');
-        _allServices = await fetchAllSubscriptions();
-        filterManagerServices();
+        const user = getCurrentUser();
+        if (user.role === 'Менеджер') {
+            await refreshManagerServices();
+        } else if (user.role === 'Администратор') {
+            await refreshAdminServices();
+        }
     } else {
         const err = await res.json();
         alert('Ошибка: ' + err.error);
@@ -3366,6 +3482,129 @@ window.addClient = function() {
         }
     }, 100);
 };
+
+function initImageUploader(containerId, urlInputId, previewContainerId, currentUrl = '') {
+    setTimeout(() => {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        if (container.dataset.initialized === 'true') return;
+        container.dataset.initialized = 'true';
+        
+        container.innerHTML = `
+            <div class="image-upload-wrapper">
+                <div class="image-upload-tabs">
+                    <button type="button" class="image-tab-btn active" data-method="url">Указать URL</button>
+                    <button type="button" class="image-tab-btn" data-method="file">Загрузить файл</button>
+                </div>
+                <div class="image-upload-url-panel active">
+                    <input type="text" id="${urlInputId}" placeholder="https://example.com/image.jpg" class="image-url-input" value="${escapeHtml(currentUrl)}">
+                    <div id="${previewContainerId}_url_preview" style="margin-top:10px; display:${currentUrl ? 'block' : 'none'}">
+                        <img src="${currentUrl}" style="max-width:150px; max-height:150px; border-radius:8px; border:1px solid #ddd; padding:4px;">
+                        <button type="button" class="btn btn-sm" style="margin-top:5px;" onclick="document.getElementById('${urlInputId}').value=''; document.getElementById('${previewContainerId}_url_preview').style.display='none';">✖ Удалить</button>
+                    </div>
+                </div>
+                <div class="image-upload-file-panel" style="display:none">
+                    <div class="file-input-area">
+                        <label class="btn btn-sm file-upload-label" style="cursor:pointer;">Выбрать файл
+                            <input type="file" id="${containerId}_file" accept="image/*" style="display:none">
+                        </label>
+                        <div id="${previewContainerId}" class="image-preview" style="display:none">
+                            <img id="${previewContainerId}_img" class="preview-img">
+                            <span class="remove-preview" title="Удалить">✖</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const urlInput = document.getElementById(urlInputId);
+        const urlPreviewDiv = document.getElementById(`${previewContainerId}_url_preview`);
+        const tabBtns = container.querySelectorAll('.image-tab-btn');
+        const urlPanel = container.querySelector('.image-upload-url-panel');
+        const filePanel = container.querySelector('.image-upload-file-panel');
+        const fileInput = document.getElementById(`${containerId}_file`);
+        const previewDiv = document.getElementById(previewContainerId);
+        const previewImg = document.getElementById(`${previewContainerId}_img`);
+        const removeBtn = container.querySelector('.remove-preview');
+        
+        // Переключение вкладок
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                tabBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (btn.dataset.method === 'url') {
+                    urlPanel.style.display = 'block';
+                    filePanel.style.display = 'none';
+                } else {
+                    urlPanel.style.display = 'none';
+                    filePanel.style.display = 'block';
+                }
+            });
+        });
+        
+        // Обновление предпросмотра при ручном изменении URL
+        urlInput.addEventListener('input', () => {
+            const newUrl = urlInput.value;
+            if (newUrl && urlPreviewDiv) {
+                const img = urlPreviewDiv.querySelector('img');
+                if (img) img.src = newUrl;
+                urlPreviewDiv.style.display = 'block';
+            } else if (urlPreviewDiv) {
+                urlPreviewDiv.style.display = 'none';
+            }
+        });
+        
+        // Загрузка файла
+        const fileLabel = container.querySelector('.file-upload-label');
+        fileLabel.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', async (e) => {
+            e.stopPropagation();
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                previewImg.src = ev.target.result;
+                previewDiv.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+            
+            try {
+                const uploadedUrl = await uploadImage(file);
+                urlInput.value = uploadedUrl;
+                // Обновить предпросмотр в URL-панели
+                if (urlPreviewDiv) {
+                    const img = urlPreviewDiv.querySelector('img');
+                    if (img) img.src = uploadedUrl;
+                    urlPreviewDiv.style.display = 'block';
+                }
+                alert('Изображение загружено, URL вставлен в поле');
+            } catch (err) {
+                alert('Ошибка загрузки: ' + err.message);
+                previewDiv.style.display = 'none';
+                fileInput.value = '';
+            }
+        });
+        
+        // Удаление предпросмотра
+        if (removeBtn) {
+            removeBtn.addEventListener('click', () => {
+                previewDiv.style.display = 'none';
+                fileInput.value = '';
+                urlInput.value = '';
+                if (urlPreviewDiv) urlPreviewDiv.style.display = 'none';
+            });
+        }
+        
+        // Если есть текущий URL, показываем предпросмотр в URL-панели (дублируем для надёжности)
+        if (currentUrl && urlPreviewDiv) {
+            const img = urlPreviewDiv.querySelector('img');
+            if (img) img.src = currentUrl;
+            urlPreviewDiv.style.display = 'block';
+        }
+    }, 200);
+}
 
 // Добавление пользователя (с выбором роли)
 window.addUserItem = function() {
@@ -3486,10 +3725,10 @@ window.editUser = async function(userId) {
         const normalizedPhone = phoneDigits.length === 11 ? phoneDigits : '7' + phoneDigits;
 
         const res = await fetch(`${API_URL}/admin/users/${userId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ full_name, email, phone: normalizedPhone, role_id, is_active })
-        });
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name, email, phone: normalizedPhone, role_id, is_active, user_id: getCurrentUser()?.id })
+});
 
         if (res.ok) {
             alert('Пользователь обновлён');
@@ -3527,7 +3766,11 @@ window.editUser = async function(userId) {
 
 window.toggleBlockUser = async function(userId) {
     if (!confirm('Изменить статус блокировки?')) return;
-    const res = await fetch(`${API_URL}/admin/users/${userId}/toggle-block`, { method: 'PATCH' });
+    const res = await fetch(`${API_URL}/admin/users/${userId}/toggle-block`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: getCurrentUser()?.id })
+});
     if (res.ok) {
         alert('Статус изменён');
         await refreshAdminUsers();
@@ -3950,6 +4193,20 @@ window.selectClientForGuestCode = function(id, name, phone, email) {
     alert(`Выбран клиент: ${name}`);
 };
 
+async function loadTodayVisits() {
+    try {
+        const res = await fetch(`${API_URL}/admin/daily-visits`);
+        if (!res.ok) throw new Error('Ошибка загрузки');
+        const data = await res.json();
+        const span = document.getElementById('todayVisitsCount');
+        if (span) span.innerText = data.count;
+    } catch (err) {
+        console.error(err);
+        const span = document.getElementById('todayVisitsCount');
+        if (span) span.innerText = 'Ошибка';
+    }
+}
+
 window.generateGuestCode = async function() {
     const duration = parseInt(document.getElementById('guestDuration').value, 10);
     let clientData = {};
@@ -3969,7 +4226,13 @@ window.generateGuestCode = async function() {
             alert('Заполните все поля нового клиента');
             return;
         }
-        clientData = { name, phone, email };
+        const phoneDigits = phone.replace(/\D/g, '');
+if (phoneDigits.length !== 11 && phoneDigits.length !== 10) {
+    alert('Введите корректный номер телефона (10 или 11 цифр)');
+    return;
+}
+const normalizedPhone = phoneDigits.length === 11 ? phoneDigits : '7' + phoneDigits;
+        clientData = { name, phone: normalizedPhone, email };
     }
 
     try {
@@ -4021,6 +4284,7 @@ window.copyToClipboard = function(text) {
 };
 
 document.addEventListener('DOMContentLoaded', async function() {
+    await initAuth();    
     const user = getCurrentUser();
     if (!user) {
         window.location.href = 'login.html';

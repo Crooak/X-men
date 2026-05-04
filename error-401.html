@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>401 — Требуется авторизация | Xmen Fitness</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="error-page">
+    <header></header>
+    <main class="error-container">
+        <div class="error-card">
+            <h1 class="error-code">401</h1>
+            <h2>Требуется авторизация</h2>
+            <p>Для доступа к этой странице необходимо войти в систему.</p>
+            <a href="login.html" class="btn">Войти</a>
+            <a href="index.html" class="btn btn-outline">На главную</a>
+        </div>
+    </main>
+    <footer>
+        <div class="footer-bottom" style="background:transparent; color:#333;">
+            <p>&copy; 2026 Xmen Fitness</p>
+        </div>
+    </footer>
+    <style>
+        .error-page {
+            display: flex; flex-direction: column; min-height: 100vh;
+        }
+        .error-container {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+        }
+        .error-card {
+            text-align: center; padding: 60px 40px; max-width: 500px;
+            background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        .error-code {
+            font-size: 120px; margin: 0; background: linear-gradient(135deg, #e74c3c, #c0392b);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+    </style>
+</body>
+</html>

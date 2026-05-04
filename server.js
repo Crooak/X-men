@@ -2,6 +2,9 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const app = express();
 const port = 3000;
 
@@ -18,6 +21,27 @@ const path = require('path');
 const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
+
+// Секретный ключ для JWT
+const JWT_SECRET = 'xmen-fitness-super-secret-key-2024';
+const JWT_EXPIRES_IN = '30m';               // время жизни токена
+const COOKIE_MAX_AGE = 30 * 60 * 1000;      // 30 минут в миллисекундах
+
+const multer = require('multer');
+
+// Настройка хранилища для multer
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadDir = path.join(__dirname, 'assets', 'images');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, 'upload_' + uniqueSuffix + ext);
+    }
+});
 
 // Папка для хранения бэкапов
 const BACKUP_DIR = path.join(__dirname, 'backups');
@@ -37,8 +61,167 @@ async function logAction(userId, action, entityType, entityId, oldData, newData,
     }
 }
 
+// Middleware проверки JWT и автоматического продления сессии
+async function authenticateToken(req, res, next) {
+    const token = req.cookies?.token;
+    if (!token) {
+        return res.status(401).json({ error: 'Не авторизован' });
+    }
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+
+        // Не продлеваем токен при запросе на выход (logout)
+      //  if (req.originalUrl !== '/api/logout') {
+        //    const newToken = jwt.sign(
+        //        { id: decoded.id, role: decoded.role, name: decoded.name },
+        //        JWT_SECRET,
+        //        { expiresIn: JWT_EXPIRES_IN }
+        //    );
+        //    res.cookie('token', newToken, {
+        //        httpOnly: true,
+        //        secure: false,
+        //        sameSite: 'lax',
+        //        path: '/',
+        //        maxAge: COOKIE_MAX_AGE
+        //    });
+        //}
+
+        next();
+    } 
+    catch (err) {
+        return res.status(401).json({ error: 'Токен истек, требуется повторная аутентификация' });
+    }
+}
+
+// Middleware проверки ролей
+function authorizeRoles(...roles) {
+    return (req, res, next) => {
+        if (!req.user || !roles.includes(req.user.role)) {
+            return res.status(403).json({ error: 'Недостаточно прав' });
+        }
+        next();
+    };
+}
+
+app.post('/api/logout', authenticateToken, (req, res) => {
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax',
+        path: '/'
+    });
+    res.json({ success: true });
+});
+
+app.get('/logout', (req, res) => {
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'lax',
+        path: '/'
+    });
+    res.redirect('/index.html');
+});
+
+async function checkSlotOverlap(trainerId, start, end, excludeSessionId = null) {
+    let query = `SELECT id FROM training_sessions 
+                 WHERE trainer_id = $1 
+                   AND tstzrange(start_time, end_time) && tstzrange($2, $3)`;
+    const params = [trainerId, start, end];
+    if (excludeSessionId) {
+        query += ` AND id != $4`;
+        params.push(excludeSessionId);
+    }
+    const result = await pool.query(query, params);
+    return result.rows.length > 0;
+}
+
+app.use(cors({
+    origin: 'http://localhost:3000',   // <-- чётко указываем, откуда идут запросы
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+app.use(cookieParser()); 
+// Раздача статических файлов из корня проекта
+app.use(express.static(__dirname));
+
+
+const upload = multer({ storage: storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5 MB
+
+app.post('/api/upload-image', authenticateToken, (req, res) => {
+    upload.single('image')(req, res, function(err) {
+        if (err instanceof multer.MulterError) {
+            return res.status(400).json({ error: 'Ошибка загрузки: ' + err.message });
+        } else if (err) {
+            console.error(err);
+            return res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'Файл не загружен' });
+        }
+        const imageUrl = `/assets/images/${req.file.filename}`;
+        res.json({ url: imageUrl });
+    });
+});
+
+// ========== Загрузка фото для Face ID ==========
+const faceIdStorage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadDir = path.join(__dirname, 'assets', 'FaceID');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, 'face_' + uniqueSuffix + ext);
+    }
+});
+
+const uploadFaceId = multer({ storage: faceIdStorage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+app.post('/api/upload-faceid', authenticateToken, (req, res) => {
+    console.log('=== Запрос на загрузку Face ID получен ===');
+    uploadFaceId.single('image')(req, res, function(err) {
+        if (err) {
+            console.error('Multer error:', err);
+            return res.status(500).json({ error: 'Multer error' });
+        }
+        console.log('req.file:', req.file);
+        if (!req.file) {
+            return res.status(400).json({ error: 'Файл не загружен' });
+        }
+        const imageUrl = `/assets/FaceID/${req.file.filename}`;
+        res.json({ url: imageUrl });
+    });
+});
+
+// Маршруты для HTML-страниц
+const pages = ['index', 'login', 'profile', 'products', 'services', 'trainers', 'schedule', 'cart'];
+pages.forEach(page => {
+    app.get(`/${page}.html`, (req, res) => {
+        res.sendFile(path.join(__dirname, `${page}.html`));
+    });
+});
+
+
+
+async function checkActiveSubscription(clientId) {
+    const res = await pool.query(
+        `SELECT id FROM client_subscriptions 
+         WHERE client_id = $1 AND status = 'активен' AND end_date > NOW()`,
+        [clientId]
+    );
+    return res.rows.length > 0;
+}
+
 // Получение списка бэкапов
-app.get('/api/admin/backups', async (req, res) => {
+app.get('/api/admin/backups', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     try {
         const files = fs.readdirSync(BACKUP_DIR);
         const backups = files
@@ -60,7 +243,7 @@ app.get('/api/admin/backups', async (req, res) => {
 });
 
 // Создание бэкапа (SQL дамп)
-app.post('/api/admin/backup', async (req, res) => {
+app.post('/api/admin/backup',authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     const body = req.body || {};
     const { user_id } = body;
     const adminId = user_id || 1;
@@ -95,7 +278,7 @@ app.post('/api/admin/backup', async (req, res) => {
 
 
 // Восстановление из бэкапа (ОСТОРОЖНО! Очищает текущую БД)
-app.post('/api/admin/restore/:filename', async (req, res) => {
+app.post('/api/admin/restore/:filename', authenticateToken, authorizeRoles('Администратор'),  async (req, res) => {
     const { filename } = req.params;
     const body = req.body || {};
     const { user_id } = body;
@@ -143,7 +326,7 @@ app.post('/api/admin/restore/:filename', async (req, res) => {
 
 
 // Скачивание файла бэкапа
-app.get('/api/admin/download-backup/:filename', async (req, res) => {
+app.get('/api/admin/download-backup/:filename', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     const { filename } = req.params;
     const safeName = path.basename(filename);
     const filepath = path.join(BACKUP_DIR, safeName);
@@ -154,49 +337,6 @@ app.get('/api/admin/download-backup/:filename', async (req, res) => {
 });
 
 
-async function checkSlotOverlap(trainerId, start, end, excludeSessionId = null) {
-    let query = `SELECT id FROM training_sessions 
-                 WHERE trainer_id = $1 
-                   AND tstzrange(start_time, end_time) && tstzrange($2, $3)`;
-    const params = [trainerId, start, end];
-    if (excludeSessionId) {
-        query += ` AND id != $4`;
-        params.push(excludeSessionId);
-    }
-    const result = await pool.query(query, params);
-    return result.rows.length > 0;
-}
-
-app.use(cors({
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
-app.use(express.json());
-
-// Раздача статических файлов из корня проекта
-app.use(express.static(__dirname));
-
-// Маршруты для HTML-страниц
-const pages = ['index', 'login', 'profile', 'products', 'services', 'trainers', 'schedule', 'cart'];
-pages.forEach(page => {
-    app.get(`/${page}.html`, (req, res) => {
-        res.sendFile(path.join(__dirname, `${page}.html`));
-    });
-});
-
-
-
-async function checkActiveSubscription(clientId) {
-    const res = await pool.query(
-        `SELECT id FROM client_subscriptions 
-         WHERE client_id = $1 AND status = 'активен' AND end_date > NOW()`,
-        [clientId]
-    );
-    return res.rows.length > 0;
-}
 
 // ========== Публичные эндпоинты ==========
 app.get('/api/subscriptions', async (req, res) => {
@@ -333,7 +473,7 @@ app.get('/api/schedule', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/bio', async (req, res) => {
+app.put('/api/trainer/:id/bio', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { bio, user_id } = req.body;
     const userId = user_id || id;
@@ -353,58 +493,53 @@ app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     try {
         const result = await pool.query(
-            `SELECT u.id, u.full_name, u.email, u.phone, u.role_id, r.name as role_name, u.photo_url
+            `SELECT u.id, u.full_name, u.email, u.phone, u.role_id, r.name as role_name, u.password_hash, u.photo_url
              FROM "Users" u
              JOIN roles r ON u.role_id = r.id
              WHERE u.email = $1 AND u.is_active = true`,
             [email]
         );
-        
+
         if (result.rows.length === 0) {
             return res.status(401).json({ error: 'Неверный email или пароль' });
         }
-        
+
         const user = result.rows[0];
-        
-        if (password !== '123') {
+
+        // Сравниваем хеши
+        const passwordMatch = await bcrypt.compare(password, user.password_hash);
+        if (!passwordMatch) {
             return res.status(401).json({ error: 'Неверный email или пароль' });
         }
-        
-        let specialization = null;
-        let rating = null;
-        let bio = null;
-        let hourly_rate = null;
-        
-        if (user.role_id === 2) {
-            const trainerRes = await pool.query(
-                'SELECT specialization, rating, bio, hourly_rate FROM trainers WHERE id = $1',
-                [user.id]
-            );
-            if (trainerRes.rows.length > 0) {
-                specialization = trainerRes.rows[0].specialization;
-                rating = trainerRes.rows[0].rating;
-                bio = trainerRes.rows[0].bio;
-                hourly_rate = trainerRes.rows[0].hourly_rate;
-            }
-        }
-        
-        // Обновляем last_login
+
+        // Создаём JWT
+        const tokenPayload = {
+            id: user.id,
+            role: user.role_name,
+            name: user.full_name
+        };
+        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+        // Отправляем токен в httpOnly cookie
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+            path: '/',  
+            maxAge: COOKIE_MAX_AGE
+        });
+
         await pool.query('UPDATE "Users" SET last_login = NOW() WHERE id = $1', [user.id]);
-        
-        // Логируем вход
         await logAction(user.id, 'Вход в систему', 'auth', user.id, null, null, req);
-        
+
+        // Возвращаем данные пользователя (без пароля)
         res.json({
             id: user.id,
             name: user.full_name,
             email: user.email,
             phone: user.phone,
             role: user.role_name,
-            photo: user.photo_url,
-            specialization,
-            rating,
-            bio,
-            hourly_rate
+            photo: user.photo_url
         });
     } catch (err) {
         console.error('Ошибка при логине:', err);
@@ -415,6 +550,7 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/register', async (req, res) => {
     const { full_name, email, phone, password, role_id = 3 } = req.body;
     try {
+        // Проверка уникальности
         const emailCheck = await pool.query('SELECT id FROM "Users" WHERE email = $1', [email]);
         if (emailCheck.rows.length > 0) {
             return res.status(400).json({ error: 'Пользователь с таким email уже существует' });
@@ -424,10 +560,15 @@ app.post('/api/register', async (req, res) => {
             return res.status(400).json({ error: 'Пользователь с таким телефоном уже существует' });
         }
 
+        // Хешируем пароль
+        const saltRounds = 10;
+        const passwordHash = await bcrypt.hash(password, saltRounds);
+
         await pool.query('BEGIN');
         const seqRes = await pool.query(`SELECT nextval('users_id_seq') as next_id`);
         const nextId = seqRes.rows[0].next_id;
 
+        // Создаём запись в trainers (необходимо для FK)
         await pool.query(
             `INSERT INTO trainers (id, specialization, bio, certificates, rating, is_available)
              VALUES ($1, NULL, NULL, NULL, NULL, $2)`,
@@ -437,10 +578,21 @@ app.post('/api/register', async (req, res) => {
         await pool.query(
             `INSERT INTO "Users" (id, full_name, email, phone, password_hash, role_id, photo_url, is_active, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, NULL, false, NOW())`,
-            [nextId, full_name, email, phone, password, role_id]
+            [nextId, full_name, email, phone, passwordHash, role_id]
         );
-
         await pool.query('COMMIT');
+
+        // Сразу авторизуем пользователя – создаём JWT и устанавливаем cookie
+        const tokenPayload = { id: nextId, role: 'Клиент', name: full_name };
+        const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+            path: '/',  
+            maxAge: COOKIE_MAX_AGE
+        });
+
         res.json({ success: true, id: nextId });
     } catch (err) {
         await pool.query('ROLLBACK');
@@ -449,8 +601,35 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-app.get('/api/client/:id/active-subscription', async (req, res) => {
-    const clientId = req.params.id;
+app.get('/api/me', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const result = await pool.query(
+            `SELECT u.id, u.full_name AS name, u.email, u.phone, r.name AS role, u.photo_url AS photo,
+                    COALESCE(t.specialization, '') AS specialization,
+                    COALESCE(t.rating, 0) AS rating,
+                    COALESCE(t.bio, '') AS bio,
+                    COALESCE(t.hourly_rate, 0) AS hourly_rate
+             FROM "Users" u
+             JOIN roles r ON u.role_id = r.id
+             LEFT JOIN trainers t ON u.id = t.id
+             WHERE u.id = $1`,
+            [userId]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.get('/api/client/:id/active-subscription', authenticateToken, async (req, res) => {
+    const clientId = parseInt(req.params.id);
+    if (req.user.id !== clientId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT cs.id, cs.end_date, st.name as subscription_name
@@ -471,8 +650,12 @@ app.get('/api/client/:id/active-subscription', async (req, res) => {
     }
 });
 
-app.get('/api/client/:id/visits', async (req, res) => {
-    const clientId = req.params.id;
+app.get('/api/client/:id/visits', authenticateToken, async (req, res) => {
+    const clientId = parseInt(req.params.id);
+    if (req.user.id !== clientId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT id, to_char(entry_time, 'YYYY-MM-DD HH24:MI') as date, method, success
@@ -488,8 +671,12 @@ app.get('/api/client/:id/visits', async (req, res) => {
     }
 });
 
-app.get('/api/client/:id/trainings', async (req, res) => {
-    const clientId = req.params.id;
+app.get('/api/client/:id/trainings', authenticateToken, async (req, res) => {
+    const clientId = parseInt(req.params.id);
+    if (req.user.id !== clientId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT b.id, ts.name, u.full_name as trainer, 
@@ -511,8 +698,12 @@ app.get('/api/client/:id/trainings', async (req, res) => {
     }
 });
 
-app.get('/api/client/:id/orders', async (req, res) => {
-    const clientId = req.params.id;
+app.get('/api/client/:id/orders', authenticateToken, async (req, res) => {
+    const clientId = parseInt(req.params.id);
+    if (req.user.id !== clientId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT o.id, p.name as product, o.quantity, o.total_price as total, o.status, 
@@ -530,8 +721,13 @@ app.get('/api/client/:id/orders', async (req, res) => {
     }
 });
 
-app.get('/api/client/:id/all-orders', async (req, res) => {
-    const clientId = req.params.id;
+
+app.get('/api/client/:id/all-orders', authenticateToken, async (req, res) => {
+    const clientId = parseInt(req.params.id);
+    if (req.user.id !== clientId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const productOrders = await pool.query(
             `SELECT o.id, p.name, o.total_price as total, o.status, o.created_at as date,
@@ -557,8 +753,12 @@ app.get('/api/client/:id/all-orders', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/schedule', async (req, res) => {
-    const trainerId = req.params.id;
+app.get('/api/trainer/:id/schedule', authenticateToken, async (req, res) => {
+    const trainerId = parseInt(req.params.id);
+    if (req.user.id !== trainerId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT ts.id, ts.name, to_char(ts.start_time, 'YYYY-MM-DD HH24:MI') as date, 
@@ -593,8 +793,12 @@ app.get('/api/trainer/:id/schedule', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/clients', async (req, res) => {
-    const trainerId = req.params.id;
+app.get('/api/trainer/:id/clients', authenticateToken, async (req, res) => {
+    const trainerId = parseInt(req.params.id);
+    if (req.user.id !== trainerId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT DISTINCT u.id, u.full_name as name, u.phone, 
@@ -614,8 +818,12 @@ app.get('/api/trainer/:id/clients', async (req, res) => {
 });
 
 // ========== Групповые тренировки тренера ==========
-app.get('/api/trainer/:id/group-sessions', async (req, res) => {
-    const trainerId = req.params.id;
+app.get('/api/trainer/:id/group-sessions', authenticateToken, async (req, res) => {
+    const trainerId = parseInt(req.params.id);
+    if (req.user.id !== trainerId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     const { startDate, endDate, groupTypeId } = req.query;
     try {
         let query = `
@@ -646,7 +854,7 @@ app.get('/api/trainer/:id/group-sessions', async (req, res) => {
     }
 });
 
-app.get('/api/manager/clients', async (req, res) => {
+app.get('/api/manager/clients',authenticateToken, authorizeRoles('Менеджер', 'Администратор'),  async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT u.id, u.full_name as name, u.phone, u.email, u.is_active,
@@ -675,7 +883,7 @@ app.get('/api/manager/clients', async (req, res) => {
     }
 });
 
-app.get('/api/manager/trainings', async (req, res) => {
+app.get('/api/manager/trainings', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT ts.id, ts.name, ts.type, ts.trainer_id, u.full_name as trainer, 
@@ -720,7 +928,7 @@ app.get('/api/subscription-access-types/all', async (req, res) => {
     }
 });
 
-app.get('/api/admin/users', async (req, res) => {
+app.get('/api/admin/users', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT u.id, u.full_name as name, u.email, u.phone, r.name as role, u.is_active
@@ -778,7 +986,7 @@ app.get('/api/admin/users', async (req, res) => {
     }
 });
 
-app.get('/api/admin/settings', async (req, res) => {
+app.get('/api/admin/settings', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT key, value, description, updated_at FROM system_settings ORDER BY key`
@@ -790,7 +998,7 @@ app.get('/api/admin/settings', async (req, res) => {
     }
 });
 
-app.post('/api/admin/settings', async (req, res) => {
+app.post('/api/admin/settings', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     const { key, value, description } = req.body;
     if (!key || value === undefined) {
         return res.status(400).json({ error: 'Key and value are required' });
@@ -813,7 +1021,7 @@ app.post('/api/admin/settings', async (req, res) => {
     }
 });
 
-app.put('/api/admin/settings/:key', async (req, res) => {
+app.put('/api/admin/settings/:key', authenticateToken, authorizeRoles('Администратор'),  async (req, res) => {
     const { key } = req.params;
     const { value, description } = req.body;
     if (value === undefined) {
@@ -835,7 +1043,7 @@ app.put('/api/admin/settings/:key', async (req, res) => {
     }
 });
 
-app.delete('/api/admin/settings/:key', async (req, res) => {
+app.delete('/api/admin/settings/:key', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     const { key } = req.params;
     try {
         const result = await pool.query('DELETE FROM system_settings WHERE key = $1', [key]);
@@ -871,7 +1079,7 @@ app.get('/api/public-settings', async (req, res) => {
     }
 });
 
-app.get('/api/admin/logs', async (req, res) => {
+app.get('/api/admin/logs', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     try {
         const { role, action, search, date_from, date_to, limit = 200 } = req.query;
         let query = `
@@ -932,10 +1140,19 @@ app.get('/api/admin/logs', async (req, res) => {
     }
 });
 
-app.post('/api/admin/users', async (req, res) => {
-    const { full_name, email, phone, password, role_id, photo_url, user_id } = req.body;
-    const adminId = user_id || 1;
+app.post('/api/admin/users', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
+    const { full_name, email, phone, password, role_id, photo_url } = req.body;
+    const adminId = req.user.id;
+
     try {
+        // Проверка уникальности
+        const emailCheck = await pool.query('SELECT id FROM "Users" WHERE email = $1', [email]);
+        if (emailCheck.rows.length > 0) return res.status(400).json({ error: 'Email уже используется' });
+        const phoneCheck = await pool.query('SELECT id FROM "Users" WHERE phone = $1', [phone]);
+        if (phoneCheck.rows.length > 0) return res.status(400).json({ error: 'Телефон уже используется' });
+
+        const passwordHash = await bcrypt.hash(password, 10);
+
         await pool.query('BEGIN');
         const seqRes = await pool.query(`SELECT nextval('users_id_seq') as next_id`);
         const nextId = seqRes.rows[0].next_id;
@@ -947,7 +1164,7 @@ app.post('/api/admin/users', async (req, res) => {
         await pool.query(
             `INSERT INTO "Users" (id, full_name, email, phone, password_hash, role_id, photo_url, is_active, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())`,
-            [nextId, full_name, email, phone, password, role_id, photo_url]
+            [nextId, full_name, email, phone, passwordHash, role_id, photo_url]
         );
         await pool.query('COMMIT');
         await logAction(adminId, 'Создание пользователя', 'user', nextId, null, { full_name, email, phone, role_id }, req);
@@ -959,26 +1176,40 @@ app.post('/api/admin/users', async (req, res) => {
     }
 });
 
-app.put('/api/admin/users/:id', async (req, res) => {
+app.put('/api/admin/users/:id', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     const id = req.params.id;
-    const { full_name, email, phone, role_id, is_active, user_id } = req.body;
+    const { full_name, email, phone, role_id, is_active, user_id, new_password } = req.body;
     const adminId = user_id || 1;
+
     try {
         const old = await pool.query('SELECT * FROM "Users" WHERE id = $1', [id]);
         if (old.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+
+        // Проверка уникальности email и телефона
         const emailCheck = await pool.query('SELECT id FROM "Users" WHERE email = $1 AND id != $2', [email, id]);
         if (emailCheck.rows.length > 0) return res.status(400).json({ error: 'Email уже используется' });
         const phoneCheck = await pool.query('SELECT id FROM "Users" WHERE phone = $1 AND id != $2', [phone, id]);
         if (phoneCheck.rows.length > 0) return res.status(400).json({ error: 'Телефон уже используется' });
-        
+
         const currentUser = await pool.query('SELECT role_id FROM "Users" WHERE id = $1', [id]);
         const oldRoleId = currentUser.rows[0].role_id;
-        
+
         await pool.query('BEGIN');
-        await pool.query(
-            `UPDATE "Users" SET full_name=$1, email=$2, phone=$3, role_id=$4, is_active=$5 WHERE id=$6`,
-            [full_name, email, phone, role_id, is_active, id]
-        );
+
+        let passwordHash = null;
+        if (new_password && new_password.trim() !== '') {
+            passwordHash = await bcrypt.hash(new_password, 10);
+            await pool.query(
+                `UPDATE "Users" SET full_name=$1, email=$2, phone=$3, role_id=$4, is_active=$5, password_hash=$6 WHERE id=$7`,
+                [full_name, email, phone, role_id, is_active, passwordHash, id]
+            );
+        } else {
+            await pool.query(
+                `UPDATE "Users" SET full_name=$1, email=$2, phone=$3, role_id=$4, is_active=$5 WHERE id=$6`,
+                [full_name, email, phone, role_id, is_active, id]
+            );
+        }
+
         if (role_id === 2 && oldRoleId !== 2) {
             const trainerExists = await pool.query('SELECT id FROM trainers WHERE id = $1', [id]);
             if (trainerExists.rows.length === 0) {
@@ -987,9 +1218,13 @@ app.put('/api/admin/users/:id', async (req, res) => {
         } else if (role_id !== 2 && oldRoleId === 2) {
             await pool.query(`UPDATE trainers SET is_available = false WHERE id = $1`, [id]);
         }
+
         await pool.query('COMMIT');
-        
+
         const newData = { full_name, email, phone, role_id, is_active };
+        if (new_password && new_password.trim() !== '') {
+            newData.password_changed = true;
+        }
         await logAction(adminId, 'Обновление пользователя', 'user', id, old.rows[0], newData, req);
         res.json({ success: true });
     } catch (err) {
@@ -1000,7 +1235,7 @@ app.put('/api/admin/users/:id', async (req, res) => {
 });
 
 
-app.patch('/api/admin/users/:id/toggle-block', async (req, res) => {
+app.patch('/api/admin/users/:id/toggle-block', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
     const id = req.params.id;
     const adminId = req.body.user_id || 1;
     try {
@@ -1016,7 +1251,141 @@ app.patch('/api/admin/users/:id/toggle-block', async (req, res) => {
     }
 });
 
-app.post('/api/products', async (req, res) => {
+app.post('/api/checkout', authenticateToken, async (req, res) => {
+    const { client_id, items } = req.body;
+    // Проверка, что клиент совпадает с авторизованным пользователем (если он клиент)
+    if (req.user.role === 'Клиент' && client_id != req.user.id) {
+        return res.status(403).json({ error: 'Вы можете оформлять заказы только для себя' });
+    }
+
+    const client = await pool.query('SELECT id FROM "Users" WHERE id = $1', [client_id]);
+    if (client.rows.length === 0) return res.status(404).json({ error: 'Клиент не найден' });
+
+    const userId = req.user.id;
+
+    // Запускаем транзакцию
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+
+        // 1. Обработка абонемента
+        const subscriptionItem = items.find(i => i.type === 'subscription');
+        if (subscriptionItem) {
+            const active = await dbClient.query(
+                `SELECT id FROM client_subscriptions WHERE client_id = $1 AND status = 'активен' AND end_date > NOW()`,
+                [client_id]
+            );
+            if (active.rows.length > 0) {
+                throw new Error('У вас уже есть активный абонемент');
+            }
+            const tier = await dbClient.query('SELECT * FROM subscription_tiers WHERE id = $1', [subscriptionItem.id]);
+            if (tier.rows.length === 0) throw new Error('Абонемент не найден');
+            const t = tier.rows[0];
+            const startDate = new Date();
+            const endDate = new Date();
+            endDate.setDate(endDate.getDate() + t.duration_dayss);
+            const subRes = await dbClient.query(
+                `INSERT INTO client_subscriptions (client_id, tier_id, start_date, end_date, status, auto_renew, price_paid, created_at)
+                 VALUES ($1, $2, $3, $4, 'активен', false, $5, NOW()) RETURNING id`,
+                [client_id, t.id, startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0], t.price]
+            );
+            await logAction(userId, 'Покупка абонемента', 'client_subscription', subRes.rows[0].id, null, { tier_id: t.id, price: t.price }, req);
+        }
+
+        // 2. Обработка товаров
+        const products = items.filter(i => i.type === 'product');
+        if (products.length > 0) {
+            let totalGoods = 0;
+            for (const item of products) {
+                const prod = await dbClient.query('SELECT stock_quantity FROM products WHERE id = $1 AND is_active = true', [item.id]);
+                if (prod.rows.length === 0) throw new Error(`Товар с id ${item.id} не найден`);
+                if (prod.rows[0].stock_quantity < item.quantity) {
+                    throw new Error(`Недостаточно товара "${item.name}" на складе`);
+                }
+                totalGoods += item.price * item.quantity;
+            }
+            if (totalGoods > 0) {
+                // Создаём платёж
+                const payRes = await dbClient.query(
+                    `INSERT INTO payments (client_id, amount, currency, payment_method, status, created_at)
+                     VALUES ($1, $2, 'руб', 'онлайн', 'проведён', NOW()) RETURNING id`,
+                    [client_id, totalGoods]
+                );
+                const paymentId = payRes.rows[0].id;
+
+                for (const item of products) {
+                    const orderRes = await dbClient.query(
+                        `INSERT INTO orders (client_id, product_id, quantity, total_price, status, payment_id, created_at)
+                         VALUES ($1, $2, $3, $4, 'оплачен', $5, NOW()) RETURNING id`,
+                        [client_id, item.id, item.quantity, item.price * item.quantity, paymentId]
+                    );
+                    const orderId = orderRes.rows[0].id;
+                    // Генерируем код доступа (как раньше)
+                    const code = Math.floor(100000 + Math.random() * 900000).toString();
+                    await dbClient.query('UPDATE orders SET access_code=$1 WHERE id=$2', [code, orderId]);
+                    // Списываем со склада
+                    await dbClient.query('UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id=$2', [item.quantity, item.id]);
+                }
+                await logAction(userId, 'Оформление заказа', 'order', paymentId, null, { items: products, total: totalGoods }, req);
+            }
+        }
+
+        // 3. Обработка записей на тренировки
+        const trainings = items.filter(i => i.type === 'training' || i.type === 'session');
+        for (const tr of trainings) {
+            const sessionId = tr.sessionId;
+            if (!sessionId) throw new Error('Отсутствует идентификатор тренировки');
+
+            const sessionRes = await dbClient.query(
+                `SELECT max_participants, start_time, end_time,
+                        (SELECT COUNT(*) FROM bookings WHERE session_id=$1 AND status='подтверждено') as booked
+                 FROM training_sessions WHERE id=$1 AND status = 'запланировано'`,
+                [sessionId]
+            );
+            if (sessionRes.rows.length === 0) throw new Error(`Тренировка "${tr.name}" не найдена`);
+            const { max_participants, start_time, end_time, booked } = sessionRes.rows[0];
+            if (new Date(start_time) <= new Date()) throw new Error(`Нельзя записаться на уже начавшуюся тренировку "${tr.name}"`);
+            if (booked >= max_participants) throw new Error(`Нет свободных мест на тренировку "${tr.name}"`);
+
+            // Проверка дублирования
+            const dup = await dbClient.query(
+                `SELECT id FROM bookings WHERE client_id=$1 AND session_id=$2 AND status='подтверждено'`,
+                [client_id, sessionId]
+            );
+            if (dup.rows.length > 0) throw new Error(`Вы уже записаны на тренировку "${tr.name}"`);
+
+            // Проверка пересечения по времени у клиента
+            const conflict = await dbClient.query(
+                `SELECT 1 FROM bookings b
+                 JOIN training_sessions ts ON b.session_id = ts.id
+                 WHERE b.client_id=$1 AND b.status='подтверждено'
+                   AND tstzrange(ts.start_time, ts.end_time) && tstzrange($2, $3)
+                 LIMIT 1`,
+                [client_id, start_time, end_time]
+            );
+            if (conflict.rows.length > 0) throw new Error(`У вас уже есть тренировка в это время (${tr.name})`);
+
+            // Создаём бронь
+            const bookRes = await dbClient.query(
+                `INSERT INTO bookings (client_id, session_id, status, booking_time, source)
+                 VALUES ($1, $2, 'подтверждено', NOW(), 'корзина') RETURNING id`,
+                [client_id, sessionId]
+            );
+            await logAction(userId, 'Запись на тренировку', 'booking', bookRes.rows[0].id, null, { session_id: sessionId }, req);
+        }
+
+        await dbClient.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await dbClient.query('ROLLBACK');
+        console.error('Checkout error:', err);
+        res.status(400).json({ error: err.message || 'Ошибка оформления заказа' });
+    } finally {
+        dbClient.release();
+    }
+});
+
+app.post('/api/products', authenticateToken, authorizeRoles('Менеджер', 'Администратор'),  async (req, res) => {
     const { name, description, price, unit, stock, image, category, user_id } = req.body;
     const userId = user_id || 1;
     try {
@@ -1034,7 +1403,7 @@ app.post('/api/products', async (req, res) => {
     }
 });
 
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id',  authenticateToken, authorizeRoles('Менеджер', 'Администратор'),async (req, res) => {
     const id = req.params.id;
     const { name, description, price, unit, stock, image, category, user_id } = req.body;
     const userId = user_id || 1;
@@ -1053,7 +1422,7 @@ app.put('/api/products/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/products/:id', async (req, res) => {
+app.delete('/api/products/:id', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const id = req.params.id;
     const userId = req.body.user_id || 1;
     try {
@@ -1068,7 +1437,7 @@ app.delete('/api/products/:id', async (req, res) => {
     }
 });
 
-app.post('/api/subscriptions', async (req, res) => {
+app.post('/api/subscriptions', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const { name, description, duration, price, access, is_active, user_id } = req.body;
     const userId = user_id || 1;
     try {
@@ -1086,7 +1455,7 @@ app.post('/api/subscriptions', async (req, res) => {
     }
 });
 
-app.put('/api/subscriptions/:id', async (req, res) => {
+app.put('/api/subscriptions/:id', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const id = req.params.id;
     const { name, description, duration, price, access, is_active, user_id } = req.body;
     const userId = user_id || 1;
@@ -1105,14 +1474,15 @@ app.put('/api/subscriptions/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/subscriptions/:id', async (req, res) => {
+app.delete('/api/subscriptions/:id', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const id = req.params.id;
     const userId = req.body.user_id || 1;
     try {
         const old = await pool.query('SELECT * FROM subscription_tiers WHERE id = $1', [id]);
         if (old.rows.length === 0) return res.status(404).json({ error: 'Услуга не найдена' });
-        await pool.query(`UPDATE subscription_tiers SET is_active=false WHERE id=$1`, [id]);
-        await logAction(userId, 'Удаление услуги (деактивация)', 'subscription_tier', id, old.rows[0], { is_active: false }, req);
+        // Полное удаление записи
+        await pool.query('DELETE FROM subscription_tiers WHERE id = $1', [id]);
+        await logAction(userId, 'Удаление услуги', 'subscription_tier', id, old.rows[0], null, req);
         res.json({ success: true });
     } catch (err) {
         console.error(err);
@@ -1120,7 +1490,7 @@ app.delete('/api/subscriptions/:id', async (req, res) => {
     }
 });
 
-app.post('/api/trainings', async (req, res) => {
+app.post('/api/trainings', authenticateToken, async (req, res) => {
     const { type, trainer_id, name, start_time, end_time, max_participants, room, price, group_type_id, user_id } = req.body;
     const userId = user_id || 1; // временно, заменить на ID из токена
     
@@ -1146,7 +1516,7 @@ app.post('/api/trainings', async (req, res) => {
     }
 });
 
-app.put('/api/trainings/:id', async (req, res) => {
+app.put('/api/trainings/:id', authenticateToken,  async (req, res) => {
     const id = req.params.id;
     const { type, trainer_id, name, start_time, end_time, max_participants, room, status, price, group_type_id, user_id } = req.body;
     const userId = user_id || 1;
@@ -1187,7 +1557,7 @@ app.put('/api/trainings/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/trainings/:id', async (req, res) => {
+app.delete('/api/trainings/:id',  authenticateToken,async (req, res) => {
     const id = req.params.id;
     const userId = req.body.user_id || 1;
     try {
@@ -1252,9 +1622,15 @@ async function checkClientTimeConflict(clientId, start, end, excludeBookingId = 
     return result.rows.length > 0;
 }
 
-app.post('/api/bookings', async (req, res) => {
-    const { client_id, session_id, source, user_id } = req.body;
-    const userId = user_id || client_id;
+app.post('/api/bookings', authenticateToken, async (req, res) => {
+    // client_id должен совпадать с авторизованным пользователем (или админ/менеджер могут за других)
+    const { client_id, session_id, source } = req.body;
+    const userId = req.user.id;
+    if (req.user.role === 'Клиент' && client_id != userId) {
+        return res.status(403).json({ error: 'Вы можете записывать только себя' });
+    }
+    // для менеджера/админа разрешаем любой client_id
+
     try {
         const sessionRes = await pool.query(
             `SELECT max_participants, start_time, end_time, (SELECT COUNT(*) FROM bookings WHERE session_id=$1 AND status='подтверждено') as booked FROM training_sessions WHERE id=$1`,
@@ -1282,16 +1658,18 @@ app.post('/api/bookings', async (req, res) => {
     }
 });
 
-app.delete('/api/bookings/:id', async (req, res) => {
-    const id = req.params.id;
-    let userId = req.body.user_id || 1;
+app.delete('/api/bookings/:id', authenticateToken, async (req, res) => {
+    const bookingId = req.params.id;
     try {
-        const bookingRes = await pool.query(`SELECT b.client_id, b.session_id, ts.type, ts.max_participants FROM bookings b JOIN training_sessions ts ON b.session_id = ts.id WHERE b.id = $1`, [id]);
+        const bookingRes = await pool.query(`SELECT b.client_id, b.session_id, ts.type, ts.max_participants FROM bookings b JOIN training_sessions ts ON b.session_id = ts.id WHERE b.id = $1`, [bookingId]);
         if (bookingRes.rows.length === 0) return res.status(404).json({ error: 'Бронь не найдена' });
-        const { client_id, session_id, type } = bookingRes.rows[0];
-        userId = client_id; // логируем от имени клиента
-        await pool.query(`UPDATE bookings SET status='отменено', cancelled_at=NOW() WHERE id=$1`, [id]);
-        await logAction(userId, 'Отмена записи', 'booking', id, { status: 'подтверждено' }, { status: 'отменено' }, req);
+        const { client_id } = bookingRes.rows[0];
+        // Только сам клиент, менеджер или админ могут отменить
+        if (req.user.role === 'Клиент' && client_id != req.user.id) {
+            return res.status(403).json({ error: 'Вы не можете отменить чужую запись' });
+        }
+        await pool.query(`UPDATE bookings SET status='отменено', cancelled_at=NOW() WHERE id=$1`, [bookingId]);
+        await logAction(req.user.id, 'Отмена записи', 'booking', bookingId, { status: 'подтверждено' }, { status: 'отменено' }, req);
         res.json({ success: true });
     } catch (err) {
         console.error(err);
@@ -1299,9 +1677,12 @@ app.delete('/api/bookings/:id', async (req, res) => {
     }
 });
 
-app.post('/api/orders', async (req, res) => {
-    const { client_id, items, user_id } = req.body;
-    const userId = user_id || client_id;
+app.post('/api/orders', authenticateToken, async (req, res) => {
+    const { client_id, items } = req.body;
+    if (req.user.role === 'Клиент' && client_id != req.user.id) {
+        return res.status(403).json({ error: 'Вы можете оформлять заказы только для себя' });
+    }
+    const userId = req.user.id;
     try {
         await pool.query('BEGIN');
         let total = 0;
@@ -1333,9 +1714,12 @@ app.post('/api/orders', async (req, res) => {
     }
 });
 
-app.post('/api/subscriptions/purchase', async (req, res) => {
-    const { client_id, tier_id, user_id } = req.body;
-    const userId = user_id || client_id;
+app.post('/api/subscriptions/purchase', authenticateToken, async (req, res) => {
+    const { client_id, tier_id } = req.body;
+    if (req.user.role === 'Клиент' && client_id != req.user.id) {
+        return res.status(403).json({ error: 'Вы можете покупать абонемент только для себя' });
+    }
+    const userId = req.user.id;
     try {
         await pool.query('BEGIN');
         const active = await pool.query(`SELECT id FROM client_subscriptions WHERE client_id = $1 AND status = 'активен' AND end_date > NOW()`, [client_id]);
@@ -1363,7 +1747,7 @@ app.post('/api/subscriptions/purchase', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/specialization', async (req, res) => {
+app.get('/api/trainer/:id/specialization', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
         const result = await pool.query('SELECT specialization FROM trainers WHERE id = $1', [id]);
@@ -1375,7 +1759,7 @@ app.get('/api/trainer/:id/specialization', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/specialization', async (req, res) => {
+app.put('/api/trainer/:id/specialization', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { specialization } = req.body;
     try {
@@ -1387,7 +1771,7 @@ app.put('/api/trainer/:id/specialization', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/client-notes', async (req, res) => {
+app.get('/api/trainer/:id/client-notes', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
         const result = await pool.query(
@@ -1403,7 +1787,7 @@ app.get('/api/trainer/:id/client-notes', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/client-notes/:clientId', async (req, res) => {
+app.put('/api/trainer/:id/client-notes/:clientId', authenticateToken, async (req, res) => {
     const { id, clientId } = req.params;
     const { note, user_id } = req.body;
     const userId = user_id || id;
@@ -1422,7 +1806,7 @@ app.put('/api/trainer/:id/client-notes/:clientId', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/group-types', async (req, res) => {
+app.get('/api/trainer/:id/group-types', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
         const result = await pool.query(
@@ -1436,7 +1820,7 @@ app.get('/api/trainer/:id/group-types', async (req, res) => {
     }
 });
 
-app.post('/api/trainer/:id/group-types', async (req, res) => {
+app.post('/api/trainer/:id/group-types', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { name, description, user_id } = req.body;
     const userId = user_id || id;
@@ -1450,7 +1834,7 @@ app.post('/api/trainer/:id/group-types', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/group-types/:typeId', async (req, res) => {
+app.put('/api/trainer/:id/group-types/:typeId', authenticateToken, async (req, res) => {
     const { id, typeId } = req.params;
     const { name, description, user_id } = req.body;
     const userId = user_id || id;
@@ -1467,7 +1851,7 @@ app.put('/api/trainer/:id/group-types/:typeId', async (req, res) => {
     }
 });
 
-app.delete('/api/trainer/:id/group-types/:typeId', async (req, res) => {
+app.delete('/api/trainer/:id/group-types/:typeId', authenticateToken, async (req, res) => {
     const { id, typeId } = req.params;
     const userId = req.body.user_id || id;
     try {
@@ -1486,7 +1870,7 @@ app.delete('/api/trainer/:id/group-types/:typeId', async (req, res) => {
     }
 });
 
-app.post('/api/trainer/:id/group-sessions', async (req, res) => {
+app.post('/api/trainer/:id/group-sessions', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { name, start_time, end_time, max_participants, room, group_type_id, price, user_id } = req.body;
     const userId = user_id || id;
@@ -1509,7 +1893,7 @@ app.post('/api/trainer/:id/group-sessions', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/group-sessions/:sessionId', async (req, res) => {
+app.put('/api/trainer/:id/group-sessions/:sessionId', authenticateToken, async (req, res) => {
     const { id, sessionId } = req.params;
     const { name, start_time, end_time, max_participants, room, group_type_id, price, user_id } = req.body;
     const userId = user_id || id;
@@ -1534,7 +1918,7 @@ app.put('/api/trainer/:id/group-sessions/:sessionId', async (req, res) => {
     }
 });
 
-app.delete('/api/trainer/:id/group-sessions/:sessionId', async (req, res) => {
+app.delete('/api/trainer/:id/group-sessions/:sessionId', authenticateToken, async (req, res) => {
     const { id, sessionId } = req.params;
     const userId = req.body.user_id || id;
 
@@ -1554,7 +1938,7 @@ app.delete('/api/trainer/:id/group-sessions/:sessionId', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/availability', async (req, res) => {
+app.get('/api/trainer/:id/availability', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
@@ -1579,7 +1963,7 @@ app.get('/api/trainer/:id/availability', async (req, res) => {
     }
 });
 
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
         const result = await pool.query(
@@ -1594,7 +1978,7 @@ app.get('/api/users/:id', async (req, res) => {
     }
 });
 
-app.put('/api/trainings/:id/cancel', async (req, res) => {
+app.put('/api/trainings/:id/cancel', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
         await pool.query(`UPDATE bookings SET status = 'отменено' WHERE session_id = $1 AND status = 'подтверждено'`, [id]);
@@ -1605,8 +1989,12 @@ app.put('/api/trainings/:id/cancel', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/personal-sessions', async (req, res) => {
-    const { id } = req.params;
+app.get('/api/trainer/:id/personal-sessions', authenticateToken, async (req, res) => {
+    const trainerId = parseInt(req.params.id);
+    if (req.user.id !== trainerId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date required' });
     try {
@@ -1625,7 +2013,7 @@ app.get('/api/trainer/:id/personal-sessions', async (req, res) => {
              WHERE ts.trainer_id = $1 AND ts.type = 'персональная' 
                AND ts.start_time >= $2 AND ts.start_time <= $3
              ORDER BY ts.start_time`,
-            [id, startOfDay.toISOString(), endOfDay.toISOString()]
+            [trainerId, startOfDay.toISOString(), endOfDay.toISOString()]
         );
         res.json(sessions.rows);
     } catch (err) {
@@ -1634,7 +2022,7 @@ app.get('/api/trainer/:id/personal-sessions', async (req, res) => {
     }
 });
 
-app.post('/api/trainer/:id/personal-sessions', async (req, res) => {
+app.post('/api/trainer/:id/personal-sessions',  authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { start_time, end_time, name, user_id } = req.body;
     const userId = user_id || id;
@@ -1657,7 +2045,7 @@ app.post('/api/trainer/:id/personal-sessions', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/personal-sessions/:sessionId', async (req, res) => {
+app.put('/api/trainer/:id/personal-sessions/:sessionId', authenticateToken, async (req, res) => {
     const { id, sessionId } = req.params;
     const { start_time, end_time, user_id } = req.body;
     const userId = user_id || id; // ID тренера (или того, кто выполняет действие)
@@ -1705,7 +2093,7 @@ app.put('/api/trainer/:id/personal-sessions/:sessionId', async (req, res) => {
     }
 });
 
-app.delete('/api/trainer/:id/personal-sessions/:sessionId', async (req, res) => {
+app.delete('/api/trainer/:id/personal-sessions/:sessionId', authenticateToken, async (req, res) => {
     const { id, sessionId } = req.params;
     const userId = req.body.user_id || id;
 
@@ -1744,8 +2132,9 @@ app.delete('/api/trainer/:id/personal-sessions/:sessionId', async (req, res) => 
     }
 });
 
-app.get('/api/trainer/:id/available-slots', async (req, res) => {
-    const trainerId = req.params.id;
+app.get('/api/trainer/:id/available-slots', authenticateToken, async (req, res) => {
+    const trainerId = parseInt(req.params.id);
+    // Любой авторизованный пользователь может смотреть слоты
     try {
         const now = new Date();
         const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -1773,7 +2162,7 @@ app.get('/api/trainer/:id/available-slots', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/hourly-rate', async (req, res) => {
+app.get('/api/trainer/:id/hourly-rate', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
         const result = await pool.query('SELECT hourly_rate FROM trainers WHERE id = $1', [id]);
@@ -1785,7 +2174,7 @@ app.get('/api/trainer/:id/hourly-rate', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/hourly-rate', async (req, res) => {
+app.put('/api/trainer/:id/hourly-rate', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { hourly_rate, user_id } = req.body;
     const userId = user_id || id;
@@ -1812,8 +2201,7 @@ app.get('/api/specializations', async (req, res) => {
 });
 
 // Получение активного гостевого кода клиента
-// Получение активного гостевого кода клиента
-app.get('/api/client/:id/active-guest-code', async (req, res) => {
+app.get('/api/client/:id/active-guest-code', authenticateToken, async (req, res) => {
     const clientId = req.params.id;
     try {
         const result = await pool.query(
@@ -1832,7 +2220,7 @@ app.get('/api/client/:id/active-guest-code', async (req, res) => {
 });
 
 // Генерация гостевого кода (уже есть, но добавим возврат кода)
-app.post('/api/guest-codes', async (req, res) => {
+app.post('/api/guest-codes', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const { client_id, name, phone, email, duration, user_id } = req.body;
     const managerId = user_id || 1;
     try {
@@ -1869,7 +2257,7 @@ app.post('/api/guest-codes', async (req, res) => {
     }
 });
 
-app.post('/api/specializations', async (req, res) => {
+app.post('/api/specializations', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const { name, description, user_id } = req.body;
     const userId = user_id || 1;
     try {
@@ -1886,7 +2274,7 @@ app.post('/api/specializations', async (req, res) => {
     }
 });
 
-app.put('/api/specializations/:id', async (req, res) => {
+app.put('/api/specializations/:id', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const id = req.params.id;
     const { name, description, user_id } = req.body;
     const userId = user_id || 1;
@@ -1905,7 +2293,7 @@ app.put('/api/specializations/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/specializations/:id', async (req, res) => {
+app.delete('/api/specializations/:id', authenticateToken, authorizeRoles('Менеджер', 'Администратор'), async (req, res) => {
     const id = req.params.id;
     const userId = req.body.user_id || 1;
     try {
@@ -1924,7 +2312,7 @@ app.delete('/api/specializations/:id', async (req, res) => {
     }
 });
 
-app.get('/api/trainer/:id/specializations', async (req, res) => {
+app.get('/api/trainer/:id/specializations', authenticateToken, async (req, res) => {
     const id = req.params.id;
     try {
         const result = await pool.query(
@@ -1941,7 +2329,7 @@ app.get('/api/trainer/:id/specializations', async (req, res) => {
     }
 });
 
-app.put('/api/trainer/:id/specializations', async (req, res) => {
+app.put('/api/trainer/:id/specializations', authenticateToken, async (req, res) => {
     const id = req.params.id;
     const { specializationIds } = req.body;
     try {
@@ -1974,8 +2362,12 @@ app.get('/api/group-training-names', async (req, res) => {
     }
 });
 
-app.get('/api/client/:clientId/my-trainers', async (req, res) => {
-    const clientId = req.params.clientId;
+app.get('/api/client/:clientId/my-trainers', authenticateToken, async (req, res) => {
+    const clientId = parseInt(req.params.clientId);
+    if (req.user.id !== clientId && !['Администратор', 'Менеджер'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     try {
         const result = await pool.query(
             `SELECT 
@@ -2005,7 +2397,7 @@ app.get('/api/client/:clientId/my-trainers', async (req, res) => {
     }
 });
 
-app.post('/api/ratings', async (req, res) => {
+app.post('/api/ratings', authenticateToken, async (req, res) => {
     const { client_id, trainer_id, rating, user_id } = req.body;
     const userId = user_id || client_id;
     try {
@@ -2030,17 +2422,27 @@ app.post('/api/ratings', async (req, res) => {
     }
 });
 
-app.put('/api/user/:id', async (req, res) => {
+app.put('/api/user/:id', authenticateToken, async (req, res) => {
+    // Разрешаем только самому пользователю или администратору
+    if (req.user.id != req.params.id && req.user.role !== 'Администратор') {
+        return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
     const userId = req.params.id;
     const { full_name, email, phone, photo_url, currentPassword, newPassword } = req.body;
-    const loggedUserId = req.body.logged_user_id || userId; // кто выполняет действие
+    const loggedUserId = req.user.id;
+
     try {
         const userRes = await pool.query('SELECT * FROM "Users" WHERE id = $1', [userId]);
         if (userRes.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
         const oldData = userRes.rows[0];
-        const currentHash = oldData.password_hash;
-        if (newPassword && currentPassword !== currentHash) {
-            return res.status(400).json({ error: 'Неверный текущий пароль' });
+
+        // Если меняется пароль, проверяем текущий
+        if (newPassword) {
+            const passwordMatch = await bcrypt.compare(currentPassword, oldData.password_hash);
+            if (!passwordMatch) {
+                return res.status(400).json({ error: 'Неверный текущий пароль' });
+            }
         }
         if (email) {
             const emailCheck = await pool.query('SELECT id FROM "Users" WHERE email = $1 AND id != $2', [email, userId]);
@@ -2050,6 +2452,7 @@ app.put('/api/user/:id', async (req, res) => {
             const phoneCheck = await pool.query('SELECT id FROM "Users" WHERE phone = $1 AND id != $2', [phone, userId]);
             if (phoneCheck.rows.length > 0) return res.status(400).json({ error: 'Пользователь с таким телефоном уже существует' });
         }
+
         const updates = [];
         const values = [];
         let paramIndex = 1;
@@ -2057,17 +2460,297 @@ app.put('/api/user/:id', async (req, res) => {
         if (email) { updates.push(`email = $${paramIndex++}`); values.push(email); }
         if (phone) { updates.push(`phone = $${paramIndex++}`); values.push(phone); }
         if (photo_url !== undefined) { updates.push(`photo_url = $${paramIndex++}`); values.push(photo_url || null); }
-        if (newPassword) { updates.push(`password_hash = $${paramIndex++}`); values.push(newPassword); }
+        if (newPassword) {
+            const newHash = await bcrypt.hash(newPassword, 10);
+            updates.push(`password_hash = $${paramIndex++}`);
+            values.push(newHash);
+        }
+
         if (updates.length === 0) return res.status(400).json({ error: 'Нет данных для обновления' });
         values.push(userId);
         const query = `UPDATE "Users" SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, full_name, email, phone, photo_url`;
         const result = await pool.query(query, values);
+
         await logAction(loggedUserId, 'Обновление профиля', 'user', userId, oldData, result.rows[0], req);
         res.json(result.rows[0]);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Database error' });
     }
+});
+
+// ========== Отчетность администратора ==========
+
+// 1. Количество посещений сайта (входов в систему) за сегодня
+app.get('/api/admin/daily-visits', authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
+    try {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        const result = await pool.query(
+            `SELECT COUNT(*) as count FROM audit_log 
+             WHERE action = 'Вход в систему' 
+               AND created_at BETWEEN $1 AND $2`,
+            [todayStart.toISOString(), todayEnd.toISOString()]
+        );
+        res.json({ count: parseInt(result.rows[0].count) });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// 2. Экспорт отчета в Excel
+const ExcelJS = require('exceljs');
+
+
+
+app.get('/api/admin/export-report',  authenticateToken, authorizeRoles('Администратор'), async (req, res) => {
+    try {
+        const workbook = new ExcelJS.Workbook();
+        
+        // ----- Лист 1: Общая статистика -----
+        const sheet1 = workbook.addWorksheet('Общая статистика');
+        
+        // Собираем данные
+        const [
+            totalUsers,
+            totalClients,
+            totalTrainers,
+            totalManagers,
+            activeClients,
+            totalOrders,
+            totalOrders30d,
+            totalRevenue,
+            totalVisitsToday,
+            totalVisits30d,
+            newClients30d
+        ] = await Promise.all([
+            pool.query('SELECT COUNT(*) FROM "Users"'),
+            pool.query('SELECT COUNT(*) FROM "Users" WHERE role_id = 3'),
+            pool.query('SELECT COUNT(*) FROM "Users" WHERE role_id = 2'),
+            pool.query('SELECT COUNT(*) FROM "Users" WHERE role_id = 4'),
+            pool.query(`
+                SELECT COUNT(*) FROM "Users" u
+                WHERE u.role_id = 3 AND u.is_active = true
+                AND (
+                    EXISTS (SELECT 1 FROM client_subscriptions cs WHERE cs.client_id = u.id AND cs.status = 'активен' AND cs.end_date > NOW())
+                    OR EXISTS (SELECT 1 FROM bookings b JOIN training_sessions ts ON b.session_id = ts.id WHERE b.client_id = u.id AND b.status = 'подтверждено' AND ts.start_time > NOW())
+                )
+            `),
+            pool.query('SELECT COUNT(*) FROM orders'),
+            pool.query(`SELECT COUNT(*) FROM orders WHERE created_at > NOW() - INTERVAL '30 days'`),
+            pool.query(`
+                SELECT COALESCE(SUM(total_price), 0) as total FROM orders
+                UNION ALL
+                SELECT COALESCE(SUM(price_paid), 0) FROM client_subscriptions
+            `),
+            pool.query(`
+    SELECT COUNT(*) FROM audit_log 
+    WHERE action = 'Вход в систему' 
+      AND created_at > NOW() - INTERVAL '1 day'
+`),
+pool.query(`
+    SELECT COUNT(*) FROM audit_log 
+    WHERE action = 'Вход в систему' 
+      AND created_at > NOW() - INTERVAL '30 days'
+`),
+            pool.query(`
+                SELECT COUNT(*) FROM "Users" 
+                WHERE role_id = 3 AND created_at > NOW() - INTERVAL '30 days'
+            `)
+        ]);
+        
+        const totalRevenueVal = Number(totalRevenue.rows[0].total) + Number(totalRevenue.rows[1].total);
+        
+        sheet1.addRows([
+            ['Показатель', 'Значение'],
+            ['Всего пользователей', totalUsers.rows[0].count],
+            ['Клиентов', totalClients.rows[0].count],
+            ['Тренеров', totalTrainers.rows[0].count],
+            ['Менеджеров', totalManagers.rows[0].count],
+            ['Активных клиентов', activeClients.rows[0].count],
+            ['Всего заказов (товары)', totalOrders.rows[0].count],
+            ['Заказов за 30 дней', totalOrders30d.rows[0].count],
+            ['Общая выручка (товары + абонементы)', totalRevenueVal],
+            ['Посещений сайта сегодня', totalVisitsToday.rows[0].count],
+            ['Посещений сайта за 30 дней', totalVisits30d.rows[0].count],   
+            ['Новых клиентов за 30 дней', newClients30d.rows[0].count]
+        ]);
+        
+        // ----- Лист 2: Клиенты -----
+        const sheet2 = workbook.addWorksheet('Клиенты');
+        sheet2.columns = [
+            { header: 'ID', key: 'id', width: 10 },
+            { header: 'Имя', key: 'name', width: 30 },
+            { header: 'Телефон', key: 'phone', width: 20 },
+            { header: 'Email', key: 'email', width: 30 },
+            { header: 'Активен', key: 'is_active', width: 10 },
+            { header: 'Тренировок (подтверждено)', key: 'trainings_count', width: 20 },
+            { header: 'Отмен тренировок', key: 'cancelled_count', width: 20 },
+            { header: 'Сумма заказов (товары)', key: 'orders_sum', width: 20 },
+            { header: 'Сумма абонементов', key: 'subscriptions_sum', width: 20 },
+            { header: 'Последняя активность', key: 'last_activity', width: 25 }
+        ];
+        
+        const clientsData = await pool.query(`
+            SELECT 
+                u.id,
+                u.full_name as name,
+                u.phone,
+                u.email,
+                CASE 
+                    WHEN EXISTS (SELECT 1 FROM client_subscriptions cs WHERE cs.client_id = u.id AND cs.status = 'активен' AND cs.end_date > NOW())
+                         OR EXISTS (SELECT 1 FROM bookings b JOIN training_sessions ts ON b.session_id = ts.id WHERE b.client_id = u.id AND b.status = 'подтверждено' AND ts.start_time > NOW())
+                    THEN 'Да' ELSE 'Нет'
+                END as is_active,
+                (SELECT COUNT(*) FROM bookings b WHERE b.client_id = u.id AND b.status = 'подтверждено') as trainings_count,
+                (SELECT COUNT(*) FROM bookings b WHERE b.client_id = u.id AND b.status = 'отменено') as cancelled_count,
+                COALESCE((SELECT SUM(total_price) FROM orders WHERE client_id = u.id), 0) as orders_sum,
+                COALESCE((SELECT SUM(price_paid) FROM client_subscriptions WHERE client_id = u.id), 0) as subscriptions_sum,
+                GREATEST(
+                    COALESCE((SELECT MAX(created_at) FROM orders WHERE client_id = u.id), '1970-01-01'),
+                    COALESCE((SELECT MAX(created_at) FROM client_subscriptions WHERE client_id = u.id), '1970-01-01'),
+                    COALESCE((SELECT MAX(booking_time) FROM bookings WHERE client_id = u.id), '1970-01-01'),
+                    COALESCE(u.last_login, '1970-01-01')
+                ) as last_activity
+            FROM "Users" u
+            WHERE u.role_id = 3
+            ORDER BY u.id
+        `);
+        
+        clientsData.rows.forEach(client => {
+            sheet2.addRow(client);
+        });
+        
+        // ----- Лист 3: Тренеры -----
+const sheet3 = workbook.addWorksheet('Тренеры');
+sheet3.columns = [
+    { header: 'ID', key: 'id', width: 10 },
+    { header: 'Имя', key: 'name', width: 30 },
+    { header: 'Специализация', key: 'specialization', width: 30 },
+    { header: 'Рейтинг', key: 'rating', width: 10 },
+    { header: 'Всего тренировок', key: 'total_sessions', width: 20 },
+    { header: 'Персональных', key: 'personal_count', width: 15 },
+    { header: 'Групповых', key: 'group_count', width: 15 },
+    { header: 'Отменено', key: 'cancelled_count', width: 15 },
+    { header: 'Уникальных клиентов', key: 'unique_clients', width: 20 },
+    { header: 'Средняя оценка', key: 'avg_rating', width: 15 }
+];
+
+const trainersData = await pool.query(`
+    SELECT 
+        t.id,
+        u.full_name as name,
+        (SELECT string_agg(s.name, ', ') FROM trainer_specializations ts JOIN specializations s ON ts.specialization_id = s.id WHERE ts.trainer_id = t.id) as specialization,
+        t.rating,
+        COUNT(ts.id) as total_sessions,
+        COUNT(CASE WHEN ts.type = 'персональная' THEN 1 END) as personal_count,
+        COUNT(CASE WHEN ts.type = 'групповая' THEN 1 END) as group_count,
+        COUNT(CASE WHEN b.status = 'отменено' THEN 1 END) as cancelled_count,
+        (SELECT COUNT(DISTINCT b.client_id) FROM bookings b JOIN training_sessions ts2 ON b.session_id = ts2.id WHERE ts2.trainer_id = t.id AND b.status = 'подтверждено') as unique_clients,
+        (SELECT AVG(rating) FROM client_trainer_ratings WHERE trainer_id = t.id) as avg_rating
+    FROM trainers t
+    JOIN "Users" u ON t.id = u.id
+    LEFT JOIN training_sessions ts ON ts.trainer_id = t.id
+    LEFT JOIN bookings b ON b.session_id = ts.id
+    WHERE u.role_id = 2
+    GROUP BY t.id, u.full_name, t.rating
+    ORDER BY u.full_name
+`);
+
+trainersData.rows.forEach(trainer => {
+    sheet3.addRow(trainer);
+});
+
+        // ----- Лист 4: Менеджеры -----
+const sheet4 = workbook.addWorksheet('Менеджеры');
+sheet4.columns = [
+    { header: 'ID', key: 'id', width: 10 },
+    { header: 'Имя', key: 'name', width: 30 },
+    { header: 'Сгенерировано гостевых кодов', key: 'guest_codes', width: 25 },
+    { header: 'Действий в системе (лог)', key: 'actions_count', width: 25 }
+];
+
+const managersData = await pool.query(`
+    SELECT 
+        u.id,
+        u.full_name as name,
+        (SELECT COUNT(*) FROM temporary_codes WHERE created_by = u.id) as guest_codes,
+        (SELECT COUNT(*) FROM audit_log WHERE user_id = u.id) as actions_count
+    FROM "Users" u
+    WHERE u.role_id = 4
+    ORDER BY u.full_name
+`);
+
+managersData.rows.forEach(manager => {
+    sheet4.addRow(manager);
+});
+        
+        // ----- Лист 5: Продажи (заказы) -----
+        const sheet5 = workbook.addWorksheet('Продажи');
+        sheet5.columns = [
+            { header: 'ID заказа', key: 'order_id', width: 10 },
+            { header: 'Клиент', key: 'client_name', width: 30 },
+            { header: 'Товар', key: 'product_name', width: 30 },
+            { header: 'Кол-во', key: 'quantity', width: 10 },
+            { header: 'Сумма', key: 'total', width: 15 },
+            { header: 'Статус', key: 'status', width: 15 },
+            { header: 'Дата', key: 'date', width: 20 }
+        ];
+        
+        const ordersData = await pool.query(`
+            SELECT 
+                o.id as order_id,
+                u.full_name as client_name,
+                p.name as product_name,
+                o.quantity,
+                o.total_price as total,
+                o.status,
+                to_char(o.created_at, 'YYYY-MM-DD HH24:MI') as date
+            FROM orders o
+            JOIN "Users" u ON o.client_id = u.id
+            JOIN products p ON o.product_id = p.id
+            ORDER BY o.created_at DESC
+            LIMIT 500
+        `);
+        
+        ordersData.rows.forEach(order => {
+            sheet5.addRow(order);
+        });
+        
+        // Отправляем файл
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="fitness_report.xlsx"');
+        await workbook.xlsx.write(res);
+        res.end();
+        
+    } catch (err) {
+        console.error('Ошибка при формировании отчета:', err);
+        res.status(500).json({ error: 'Ошибка формирования отчета' });
+    }
+});
+
+// ===== Обработка ошибок =====
+
+// 1. Ловим ошибки, возникающие в маршрутах
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err.stack);
+    if (req.path.startsWith('/api')) {
+        return res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+    res.status(500).sendFile(path.join(__dirname, 'error-500.html'));
+});
+
+// 2. Обработка 404 (маршрут не найден)
+app.use((req, res, next) => {
+    // Если запрос к API, возвращаем JSON
+    if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'Маршрут не найден' });
+    }
+    // Для остальных запросов отдаём HTML-страницу
+    res.status(404).sendFile(path.join(__dirname, 'error-404.html'));
 });
 
 // Для корневого пути – отдаём index.html

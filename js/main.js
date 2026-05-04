@@ -7,14 +7,36 @@ let _userBookedSessions = [];
 let _scheduleCurrentDate = new Date().toISOString().split('T')[0];
 let _allScheduleEvents = [];
 
+let trainerSpecializationFilter = null;
+
+function escapeHtml(str) {
+    if (typeof str !== 'string') return str;
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function getSunIcon() {
+    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+}
+
+function getMoonIcon() {
+    return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+}
+
 function updateHeader() {
     const authButtons = document.getElementById('authButtons');
     if (!authButtons) return;
-    const user = getCurrentUser();
+    const user = getCurrentUser();    
     if (user) {
         const cartCount = getCartTotalCount();
+        const firstName = user.name ? user.name.split(' ')[0] : 'Пользователь';
+        const roleShort = getRoleNameShort(user.role);
         authButtons.innerHTML = `
-            <span class="user-greeting">${user.name.split(' ')[0]} (${getRoleNameShort(user.role)})</span>
+            <span class="user-greeting">${firstName} (${roleShort})</span>
             <a href="cart.html" class="cart-icon">
                 <svg viewBox="0 0 24 24" width="24" height="24">
                     <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/>
@@ -22,11 +44,21 @@ function updateHeader() {
                 ${cartCount > 0 ? `<span class="cart-count">${cartCount}</span>` : ''}
             </a>
             <a href="profile.html" class="btn">Личный кабинет</a>
+            <button class="btn theme-switch-btn" id="themeToggle" aria-label="Переключить тему">${getMoonIcon()}</button>
         `;
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', toggleTheme);
+        }
     } else {
         authButtons.innerHTML = `
             <a href="login.html" class="btn">Личный кабинет</a>
+            <button class="btn theme-switch-btn" id="themeToggle" aria-label="Переключить тему">${getMoonIcon()}</button>
         `;
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', toggleTheme);
+        }
     }
 }
 
@@ -151,72 +183,20 @@ async function loadSpecializationsFilter() {
 }
 
 // Страница товаров
-async function loadProducts(filters = {}) {
-    const container = document.getElementById('productsGrid');
-    if (!container) return;
-    let products = await fetchProducts();
-    if (filters.category && filters.category !== 'all') {
-        products = products.filter(p => p.category === filters.category);
-    }
-    if (filters.sort === 'price_asc') {
-        products.sort((a, b) => a.price - b.price);
-    } else if (filters.sort === 'price_desc') {
-        products.sort((a, b) => b.price - a.price);
-    }
-    container.innerHTML = products.map(p => {
-        const qty = getProductQuantity(p.id);
-        if (qty > 0) {
-            return `
-                <div class="card">
-                    <img src="${p.image || 'https://via.placeholder.com/200'}" alt="${p.name}" class="card-img">
-                    <div class="card-body">
-                        <h3 class="card-title">${p.name}</h3>
-                        <p class="card-text">Цена: ${p.price} ₽ / ${p.unit} | В наличии: ${p.stock}</p>
-                        ${p.category ? `<p><small>Категория: ${p.category}</small></p>` : ''}
-                    </div>
-                    <div class="card-footer">
-                        <div class="cart-control">
-                            <button class="btn btn-sm" onclick="decrementProduct(${p.id})">-</button>
-                            <span>${qty} шт.</span>
-                            <button class="btn btn-sm" onclick="incrementProduct(${p.id})">+</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else {
-            return `
-                <div class="card">
-                    <img src="${p.image || 'https://via.placeholder.com/200'}" alt="${p.name}" class="card-img">
-                    <div class="card-body">
-                        <h3 class="card-title">${p.name}</h3>
-                        <p class="card-text">Цена: ${p.price} ₽ / ${p.unit} | В наличии: ${p.stock}</p>
-                        ${p.category ? `<p><small>Категория: ${p.category}</small></p>` : ''}
-                    </div>
-                    <div class="card-footer">
-                        <button class="btn add-to-cart" 
-                            data-id="${p.id}" 
-                            data-name="${p.name}" 
-                            data-price="${p.price}" 
-                            data-image="${p.image || ''}" 
-                            data-unit="${p.unit}" 
-                            data-stock="${p.stock}">
-                            В корзину
-                        </button>
-                    </div>
-                </div>
-            `;
-        }
-    }).join('');
-}
-
-window.incrementProduct = function(productId) {
+window.incrementProduct = async function(productId) {
     const cart = getCart();
     const item = cart.find(i => i.id === productId && i.type === 'product');
-    if (item) {
-        item.quantity++;
-        saveCart(cart);
-        loadProducts();
+    if (!item) return;
+    const products = await fetchProducts();
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    if (item.quantity + 1 > product.stock) {
+        alert(`Нельзя добавить больше, чем есть на складе (доступно: ${product.stock} шт.)`);
+        return;
     }
+    item.quantity++;
+    saveCart(cart);
+    loadProducts();
 };
 
 window.decrementProduct = function(productId) {
@@ -234,41 +214,62 @@ window.decrementProduct = function(productId) {
 };
 
 // Страница услуг
-async function loadServices(filters = {}) {
-    const container = document.getElementById('servicesGrid');
+async function loadProducts(filters = {}) {
+    const container = document.getElementById('productsGrid');
     if (!container) return;
-
-    let services = await fetchSubscriptions();
-
-    if (filters.access && filters.access !== 'all') {
-        services = services.filter(s => s.access === filters.access);
-    }
-    if (filters.duration && filters.duration !== 'all') {
-        services = services.filter(s => s.duration == filters.duration);
+    let products = await fetchProducts();
+    if (filters.category && filters.category !== 'all') {
+        products = products.filter(p => p.category === filters.category);
     }
     if (filters.sort === 'price_asc') {
-        services.sort((a, b) => a.price - b.price);
+        products.sort((a, b) => a.price - b.price);
     } else if (filters.sort === 'price_desc') {
-        services.sort((a, b) => b.price - a.price);
+        products.sort((a, b) => b.price - a.price);
     }
 
-    const subscriptionInCart = getCart().find(item => item.type === 'subscription');
+    if (products.length === 0) {
+        container.innerHTML = '<div class="empty-result">По выбранным фильтрам товаров не найдено</div>';
+        return;
+    }
 
-    container.innerHTML = services.map(s => {
-        const isInCart = subscriptionInCart && subscriptionInCart.id === s.id;
-        if (isInCart) {
+    container.innerHTML = products.map(p => {
+        const safeName = escapeHtml(p.name);
+        const safeImage = escapeHtml(p.image || 'https://via.placeholder.com/200');
+        const safeUnit = escapeHtml(p.unit);
+        const safeCategory = escapeHtml(p.category || '');
+        const qty = getProductQuantity(p.id);
+
+        if (p.stock === 0) {
             return `
                 <div class="card">
+                    <img src="${safeImage}" alt="${safeName}" class="card-img">
                     <div class="card-body">
-                        <h3 class="card-title">${s.name}</h3>
-                        <p class="card-text">${s.description}</p>
-                        <p><strong>${s.price} ₽</strong> / ${s.duration} дней</p>
-                        <p>Доступ: ${s.access}</p>
+                        <h3 class="card-title">${safeName}</h3>
+                        <p class="card-text">Цена: ${p.price} ₽ / ${safeUnit}</p>
+                        ${p.category ? `<p><small>Категория: ${safeCategory}</small></p>` : ''}
+                    </div>
+                    <div class="card-footer">
+                        <div class="out-of-stock-badge">
+                            <span class="out-of-stock-icon">📦</span> Нет в наличии
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        if (qty > 0) {
+            return `
+                <div class="card">
+                    <img src="${safeImage}" alt="${safeName}" class="card-img">
+                    <div class="card-body">
+                        <h3 class="card-title">${safeName}</h3>
+                        <p class="card-text">Цена: ${p.price} ₽ / ${safeUnit} | В наличии: ${p.stock}</p>
+                        ${p.category ? `<p><small>Категория: ${safeCategory}</small></p>` : ''}
                     </div>
                     <div class="card-footer">
                         <div class="cart-control">
-                            <button class="btn btn-sm" onclick="removeSubscriptionFromCart(${s.id})">-</button>
-                            <span>1 шт.</span>
+                            <button class="btn btn-sm" onclick="decrementProduct(${p.id})">-</button>
+                            <span>${qty} шт.</span>
+                            <button class="btn btn-sm" onclick="incrementProduct(${p.id})">+</button>
                         </div>
                     </div>
                 </div>
@@ -276,14 +277,22 @@ async function loadServices(filters = {}) {
         } else {
             return `
                 <div class="card">
+                    <img src="${safeImage}" alt="${safeName}" class="card-img">
                     <div class="card-body">
-                        <h3 class="card-title">${s.name}</h3>
-                        <p class="card-text">${s.description}</p>
-                        <p><strong>${s.price} ₽</strong> / ${s.duration} дней</p>
-                        <p>Доступ: ${s.access}</p>
+                        <h3 class="card-title">${safeName}</h3>
+                        <p class="card-text">Цена: ${p.price} ₽ / ${safeUnit} | В наличии: ${p.stock}</p>
+                        ${p.category ? `<p><small>Категория: ${safeCategory}</small></p>` : ''}
                     </div>
                     <div class="card-footer">
-                        <button class="btn" onclick="buyService(${s.id})">Купить</button>
+                        <button class="btn add-to-cart" 
+                            data-id="${p.id}" 
+                            data-name="${safeName.replace(/"/g, '&quot;')}" 
+                            data-price="${p.price}" 
+                            data-image="${safeImage.replace(/"/g, '&quot;')}" 
+                            data-unit="${safeUnit.replace(/"/g, '&quot;')}" 
+                            data-stock="${p.stock}">
+                            В корзину
+                        </button>
                     </div>
                 </div>
             `;
@@ -322,27 +331,41 @@ async function loadTrainers(filters = {}) {
     const container = document.getElementById('trainersGrid');
     if (!container) return;
     let trainers = await fetchTrainers();
+
     if (filters.specialization && filters.specialization !== 'all') {
         trainers = trainers.filter(t => t.specialization && t.specialization.includes(filters.specialization));
     }
-    if (filters.sort === 'rating_desc') {
-        trainers.sort((a, b) => b.rating - a.rating);
+
+    // Сортировка
+    if (filters.sort === 'price_asc') {
+        trainers.sort((a, b) => (a.hourly_rate || 0) - (b.hourly_rate || 0));
+    } else if (filters.sort === 'price_desc') {
+        trainers.sort((a, b) => (b.hourly_rate || 0) - (a.hourly_rate || 0));
+    } else if (filters.sort === 'rating_desc') {
+        trainers.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     }
+    // Если filters.sort === '' или другое – сортировка не применяется
+
+    if (trainers.length === 0) {
+        container.innerHTML = '<div class="empty-result">По выбранным фильтрам тренеров не найдено</div>';
+        return;
+    }
+
     container.innerHTML = trainers.map(t => {
-        const safeName = t.name.replace(/'/g, "\\'");
+        const safeName = escapeHtml(t.name); // уже экранировано
         const rate = t.hourly_rate ? `${t.hourly_rate} ₽/час` : 'Не указана';
         return `
             <div class="card">
-                <img src="${t.photo || 'https://via.placeholder.com/300'}" alt="${t.name}" class="card-img">
+                <img src="${escapeHtml(t.photo || 'https://via.placeholder.com/300')}" alt="${safeName}" class="card-img">
                 <div class="card-body">
-                    <h3 class="card-title">${t.name}</h3>
-                    <p class="card-text">${t.specialization}</p>
+                    <h3 class="card-title">${safeName}</h3>
+                    <p class="card-text">${escapeHtml(t.specialization)}</p>
                     <p>Рейтинг: ${t.rating}</p>
-                    <p>${t.bio}</p>
+                    <p>${escapeHtml(t.bio)}</p>
                     <p><strong>Цена за час:</strong> ${rate}</p>
                 </div>
                 <div class="card-footer">
-                    <button class="btn" onclick="openBookingModal(${t.id}, '${safeName}')">Записаться</button>
+                    <button class="btn" onclick="openBookingModal(${t.id}, '${safeName.replace(/'/g, "\\'")}')">Записаться</button>
                 </div>
             </div>
         `;
@@ -529,7 +552,73 @@ async function loadScheduleFilters() {
     }
 }
 
-async function applyScheduleFiltersAndRender() {
+async function loadServices(filters = {}) {
+    const container = document.getElementById('servicesGrid');
+    if (!container) return;
+
+    let services = await fetchSubscriptions();
+
+    if (filters.access && filters.access !== 'all') {
+        services = services.filter(s => s.access === filters.access);
+    }
+    if (filters.duration && filters.duration !== 'all') {
+        services = services.filter(s => s.duration == filters.duration);
+    }
+    if (filters.sort === 'price_asc') {
+        services.sort((a, b) => a.price - b.price);
+    } else if (filters.sort === 'price_desc') {
+        services.sort((a, b) => b.price - a.price);
+    }
+
+    if (services.length === 0) {
+        container.innerHTML = '<div class="empty-result">По выбранным фильтрам услуг не найдено</div>';
+        return;
+    }
+
+    const subscriptionInCart = getCart().find(item => item.type === 'subscription');
+
+    container.innerHTML = services.map(s => {
+        const safeName = escapeHtml(s.name);
+        const safeDescription = escapeHtml(s.description);
+        const safeAccess = escapeHtml(s.access);
+        const isInCart = subscriptionInCart && subscriptionInCart.id === s.id;
+        if (isInCart) {
+            return `
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">${safeName}</h3>
+                        <p class="card-text">${safeDescription}</p>
+                        <p><strong>${s.price} ₽</strong> / ${s.duration} дней</p>
+                        <p>Доступ: ${safeAccess}</p>
+                    </div>
+                    <div class="card-footer">
+                        <div class="cart-control">
+                            <button class="btn btn-sm" onclick="removeSubscriptionFromCart(${s.id})">-</button>
+                            <span>1 шт.</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">${safeName}</h3>
+                        <p class="card-text">${safeDescription}</p>
+                        <p><strong>${s.price} ₽</strong> / ${s.duration} дней</p>
+                        <p>Доступ: ${safeAccess}</p>
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn" onclick="buyService(${s.id})">Купить</button>
+                    </div>
+                </div>
+            `;
+        }
+    }).join('');
+}
+
+
+window.applyScheduleFiltersAndRender = async function() {
     await loadUserBookings();
 
     const container = document.getElementById('scheduleGrid');
@@ -554,11 +643,12 @@ async function applyScheduleFiltersAndRender() {
     events.sort((a, b) => new Date(a.start) - new Date(b.start));
 
     if (events.length === 0) {
-        container.innerHTML = '<p class="text-center">На выбранный день нет тренировок</p>';
+        container.innerHTML = '<p class="empty-result">На выбранный день нет тренировок</p>';
         return;
     }
 
     const cart = getCart();
+    const now = new Date();
 
     container.innerHTML = events.map(e => {
         const startDate = new Date(e.start);
@@ -567,14 +657,21 @@ async function applyScheduleFiltersAndRender() {
         const formattedEnd = endDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
         const timeRange = `${formattedStart} - ${formattedEnd}`;
         const available = e.max - e.booked;
-        const priceDisplay = e.price ? `${e.price} ₽` : 'Цена не указана';
-
         const price = e.price ? `${e.price} ₽` : 'Цена не указана';
         const isBooked = _userBookedSessions.includes(Number(e.id));
         const isInCart = cart.some(item => (item.type === 'session' || item.type === 'training') && item.sessionId === e.id);
 
+        // Экранируем все строковые данные с сервера
+        const safeName = escapeHtml(e.name);
+        const safeTrainer = escapeHtml(e.trainer);
+        const safeRoom = escapeHtml(e.room);
+
+        const isPast = endDate < now;
+
         let buttonHtml;
-        if (isBooked) {
+        if (isPast) {
+            buttonHtml = '<button class="btn btn-secondary" disabled>Прошло</button>';
+        } else if (isBooked) {
             buttonHtml = '<button class="btn btn-success" disabled>Вы записаны</button>';
         } else if (isInCart) {
             buttonHtml = `
@@ -584,16 +681,16 @@ async function applyScheduleFiltersAndRender() {
                 </div>
             `;
         } else {
-            buttonHtml = `<button class="btn" onclick="bookSession(${e.id}, '${e.name}', '${e.trainer}', '${e.start}')">Записаться</button>`;
+            buttonHtml = `<button class="btn" onclick="bookSession(${e.id}, '${safeName.replace(/'/g, "\\'")}', '${safeTrainer.replace(/'/g, "\\'")}', '${e.start}')">Записаться</button>`;
         }
 
         return `
             <div class="card">
                 <div class="card-body">
-                    <h3 class="card-title">${e.name}</h3>
-                    <p><strong>Тренер:</strong> ${e.trainer}</p>
+                    <h3 class="card-title">${safeName}</h3>
+                    <p><strong>Тренер:</strong> ${safeTrainer}</p>
                     <p><strong>Время:</strong> ${timeRange}</p>
-                    <p><strong>Зал:</strong> ${e.room}</p>
+                    <p><strong>Зал:</strong> ${safeRoom}</p>
                     <p>Свободно: ${available} / ${e.max}</p>
                     <p><strong>Цена:</strong> ${price}</p>
                 </div>
@@ -603,6 +700,14 @@ async function applyScheduleFiltersAndRender() {
             </div>
         `;
     }).join('');
+};
+
+function removeDefaultSortOption(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    if (select.options.length > 0 && select.options[0].text.toLowerCase().includes('умолчанию')) {
+        select.remove(0);
+    }
 }
 
 window.removeTrainingFromCart = function(sessionId) {
@@ -753,17 +858,60 @@ async function loadPublicSettings() {
     }
 }
 
+// Функция применения темы
+function applyTheme(theme) {
+    if (theme === 'dark') {
+        document.body.classList.add('dark-theme');
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) themeBtn.innerHTML = getSunIcon();
+    } else {
+        document.body.classList.remove('dark-theme');
+        const themeBtn = document.getElementById('themeToggle');
+        if (themeBtn) themeBtn.innerHTML = getMoonIcon();
+    }
+    localStorage.setItem('theme', theme);
+}
+
+// Функция переключения темы
+function toggleTheme() {
+    const isDark = document.body.classList.contains('dark-theme');
+    applyTheme(isDark ? 'light' : 'dark');
+}
+
+// Загрузка сохранённой темы
+function loadTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        applyTheme('dark');
+    } else {
+        applyTheme('light'); // по умолчанию светлая
+    }
+}
+
 
 window.loadUserBookings = loadUserBookings;
 window.applyScheduleFiltersAndRender = applyScheduleFiltersAndRender;
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function () {
+    // 1. Проверяем, авторизован ли пользователь (обновляет currentUser)
+    await initAuth();
+
+    loadTheme();
+
+    // 2. Загружаем публичные настройки
     loadPublicSettings();
+
+    // 3. Обновляем шапку (теперь currentUser точно определён)
     updateHeader();
 
+    // Убираем опцию "По умолчанию" из выпадающих списков сортировки
+removeDefaultSortOption('serviceSortFilter');
+removeDefaultSortOption('productSortFilter');
+removeDefaultSortOption('trainerSortFilter');
+
+    // 4. Мобильное меню и клики вне него
     const mobileBtn = document.getElementById('mobileMenuBtn');
     if (mobileBtn) mobileBtn.addEventListener('click', toggleMobileMenu);
-
     document.addEventListener('click', function(e) {
         const navMenu = document.querySelector('nav ul');
         const mobileBtn = document.getElementById('mobileMenuBtn');
@@ -772,60 +920,70 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Страница услуг
-    const serviceAccessFilter = document.getElementById('serviceAccessFilter');
-    const serviceDurationFilter = document.getElementById('serviceDurationFilter');
-    const serviceSortFilter = document.getElementById('serviceSortFilter');
-    if (serviceAccessFilter && serviceDurationFilter && serviceSortFilter) {
-        loadServiceFilters().then(() => {
-            loadServices({
-                access: serviceAccessFilter.value,
-                duration: serviceDurationFilter.value,
-                sort: serviceSortFilter.value
-            });
-        });
-        const applyServiceFilters = () => {
-            loadServices({
-                access: serviceAccessFilter.value,
-                duration: serviceDurationFilter.value,
-                sort: serviceSortFilter.value
-            });
-        };
-        serviceAccessFilter.addEventListener('change', applyServiceFilters);
-        serviceDurationFilter.addEventListener('change', applyServiceFilters);
-        serviceSortFilter.addEventListener('change', applyServiceFilters);
-    }
+    // 5. Инициализация фильтров и контента на соответствующих страницах
+    // (все эти проверки остаются, они не зависят от авторизации)
 
-    // Страница товаров
-    const productCategoryFilter = document.getElementById('productCategoryFilter');
-    const productSortFilter = document.getElementById('productSortFilter');
-    if (productCategoryFilter && productSortFilter) {
-        loadCategoryFilter().then(() => {
-            loadProducts({ category: productCategoryFilter.value, sort: productSortFilter.value });
+    // Услуги
+    // Услуги
+const serviceAccessFilter = document.getElementById('serviceAccessFilter');
+const serviceDurationFilter = document.getElementById('serviceDurationFilter');
+const serviceSortFilter = document.getElementById('serviceSortFilter');
+if (serviceAccessFilter && serviceDurationFilter && serviceSortFilter) {
+    loadServiceFilters().then(() => {
+        loadServices({
+            access: serviceAccessFilter.value,
+            duration: serviceDurationFilter.value,
+            sort: serviceSortFilter.value
         });
-        const applyProductFilters = () => {
-            loadProducts({ category: productCategoryFilter.value, sort: productSortFilter.value });
-        };
-        productCategoryFilter.addEventListener('change', applyProductFilters);
-        productSortFilter.addEventListener('change', applyProductFilters);
-    }
-
-    // Страница тренеров
-    const trainerSpecializationFilter = document.getElementById('trainerSpecializationFilter');
-    const trainerSortFilter = document.getElementById('trainerSortFilter');
-    if (trainerSpecializationFilter && trainerSortFilter) {
-        loadSpecializationsFilter().then(() => {
-            loadTrainers({ specialization: trainerSpecializationFilter.value, sort: trainerSortFilter.value });
+    });
+    const applyServiceFilters = () => {
+        loadServices({
+            access: serviceAccessFilter.value,
+            duration: serviceDurationFilter.value,
+            sort: serviceSortFilter.value
         });
-        const applyTrainerFilters = () => {
-            loadTrainers({ specialization: trainerSpecializationFilter.value, sort: trainerSortFilter.value });
-        };
-        trainerSpecializationFilter.addEventListener('change', applyTrainerFilters);
-        trainerSortFilter.addEventListener('change', applyTrainerFilters);
-    }
+    };
+    serviceAccessFilter.addEventListener('change', applyServiceFilters);
+    serviceDurationFilter.addEventListener('change', applyServiceFilters);
+    serviceSortFilter.addEventListener('change', applyServiceFilters);
+}
 
-    // Страница расписания
-    if (document.getElementById('scheduleGrid')) {
-        initSchedulePage();
-    }
+// Товары
+const productCategoryFilter = document.getElementById('productCategoryFilter');
+const productSortFilter = document.getElementById('productSortFilter');
+if (productCategoryFilter && productSortFilter) {
+    loadCategoryFilter().then(() => {
+        loadProducts({ category: productCategoryFilter.value, sort: productSortFilter.value });
+    });
+    const applyProductFilters = () => {
+        loadProducts({ category: productCategoryFilter.value, sort: productSortFilter.value });
+    };
+    productCategoryFilter.addEventListener('change', applyProductFilters);
+    productSortFilter.addEventListener('change', applyProductFilters);
+}
+
+// Тренеры – правильная инициализация с объявленной переменной
+trainerSpecializationFilter = document.getElementById('trainerSpecializationFilter');
+const trainerSortFilter = document.getElementById('trainerSortFilter');
+if (trainerSpecializationFilter && trainerSortFilter) {
+    loadSpecializationsFilter().then(() => {
+        loadTrainers({
+            specialization: trainerSpecializationFilter.value,
+            sort: trainerSortFilter.value
+        });
+    });
+    const applyTrainerFilters = () => {
+        loadTrainers({
+            specialization: trainerSpecializationFilter.value,
+            sort: trainerSortFilter.value
+        });
+    };
+    trainerSpecializationFilter.addEventListener('change', applyTrainerFilters);
+    trainerSortFilter.addEventListener('change', applyTrainerFilters);
+}
+
+// Расписание
+if (document.getElementById('scheduleGrid')) {
+    initSchedulePage();
+}
 });

@@ -1,6 +1,7 @@
 // js/cart.js
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    await initAuth();
     const user = getCurrentUser();
     if (!user) {
         window.location.href = 'login.html';
@@ -24,6 +25,12 @@ async function renderCart() {
 
     const itemsHtml = cart.map(item => {
         const isProduct = item.type === 'product';
+        const safeName = escapeHtml(item.name);
+        const safeImage = escapeHtml(item.image || 'https://via.placeholder.com/80');
+        const safeTrainer = escapeHtml(item.trainer || '');
+        const safeTime = escapeHtml(item.timeRange || item.time || '');
+        const safeDate = escapeHtml(item.date || '');
+
         const quantityControls = isProduct
             ? `<div class="cart-item-quantity">
                 <button class="btn btn-sm" onclick="decrementCartItem('${item.id}')">-</button>
@@ -32,27 +39,27 @@ async function renderCart() {
            </div>`
         : `<div class="cart-item-quantity"><span>1</span></div>`;
 
-         let timeDisplay = '';
-    if (item.timeRange) {
-        timeDisplay = `<div class="cart-item-time">${item.date} ${item.timeRange}</div>`;
-    } else if (item.time) {
-        timeDisplay = `<div class="cart-item-time">${item.time}</div>`;
-    }
+        let timeDisplay = '';
+        if (item.timeRange) {
+            timeDisplay = `<div class="cart-item-time">${safeDate} ${safeTime}</div>`;
+        } else if (item.time) {
+            timeDisplay = `<div class="cart-item-time">${safeTime}</div>`;
+        }
 
         return `
         <div class="cart-item">
-            <img src="${item.image || 'https://via.placeholder.com/80'}" alt="${item.name}">
+            <img src="${safeImage}" alt="${safeName}">
             <div class="cart-item-details">
-                <div class="cart-item-title">${item.name}</div>
+                <div class="cart-item-title">${safeName}</div>
                 <div class="cart-item-price">${item.price} ₽</div>
                 ${timeDisplay}
-                ${item.trainer ? `<div>Тренер: ${item.trainer}</div>` : ''}
+                ${safeTrainer ? `<div>Тренер: ${safeTrainer}</div>` : ''}
             </div>
             ${quantityControls}
             <div class="cart-item-remove" onclick="removeCartItem('${item.id}')">🗑</div>
         </div>
     `;
-}).join('');
+    }).join('');
 
     const total = getCartTotalSum();
 
@@ -119,78 +126,47 @@ window.checkout = async function() {
     let cart = getCart();
     if (cart.length === 0) return alert('Корзина пуста');
 
-    const subscriptionItem = cart.find(item => item.type === 'subscription');
-    if (subscriptionItem) {
-        const hasActive = await checkActiveSubscription(user.id);
-        if (hasActive) {
-            alert('У вас уже есть активный абонемент. Оформите заказ без абонемента.');
-            return;
+    // Подготовка данных для отправки
+    const items = cart.map(item => {
+        const base = {
+            id: item.id,
+            name: escapeHtml(item.name), // экранируем для передачи в JSON
+            price: item.price,
+            type: item.type,
+            quantity: item.quantity || 1
+        };
+        if (item.type === 'subscription') {
+            return { ...base, id: item.id };
         }
-    }
+        if (item.type === 'product') {
+            return { ...base, id: item.id, quantity: item.quantity };
+        }
+        if (item.type === 'training' || item.type === 'session') {
+            return { ...base, sessionId: item.sessionId, name: escapeHtml(item.name) };
+        }
+        return base;
+    });
 
-    if (subscriptionItem) {
-        const res = await fetch(`${API_URL}/subscriptions/purchase`, {
+    try {
+        const response = await fetch(`${API_URL}/checkout`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client_id: user.id, tier_id: subscriptionItem.id })
+            body: JSON.stringify({ client_id: user.id, items }),
+            credentials: 'include'
         });
-        if (!res.ok) {
-            const err = await res.json();
-            alert('Ошибка покупки абонемента: ' + err.error);
-            return;
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Ошибка оформления');
         }
-        cart = cart.filter(item => item.type !== 'subscription');
-        saveCart(cart);
-    }
-
-    const products = cart.filter(item => item.type === 'product').map(item => ({
-        product_id: item.id,
-        quantity: item.quantity,
-        price: item.price
-    }));
-
-    if (products.length > 0) {
-        const res = await fetch(`${API_URL}/orders`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ client_id: user.id, items: products })
-        });
-        if (!res.ok) {
-            alert('Ошибка при оформлении заказа товаров');
-            return;
+        alert('Заказ оформлен!');
+        clearCart();
+        // Обновляем расписание, если открыто
+        if (typeof window.applyScheduleFiltersAndRender === 'function') {
+            window.applyScheduleFiltersAndRender();
         }
+        renderCart();
+        updateHeader();
+    } catch (e) {
+        alert(e.message);
     }
-
-    const bookings = cart.filter(item => item.type === 'training' || item.type === 'session');
-    for (const booking of bookings) {
-        const sessionId = booking.sessionId;
-        if (!sessionId) {
-            alert('Ошибка: отсутствует идентификатор тренировки');
-            return;
-        }
-
-        const bookRes = await fetch(`${API_URL}/bookings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                client_id: user.id,
-                session_id: sessionId,
-                source: 'корзина'
-            })
-        });
-        if (!bookRes.ok) {
-            const err = await bookRes.json();
-            alert('Ошибка записи на тренировку: ' + (err.error || 'неизвестная ошибка'));
-            return;
-        }
-    }
-
-    alert('Заказ оформлен!');
-    clearCart();
-    // Обновляем страницу расписания, если она открыта
-    if (typeof window.applyScheduleFiltersAndRender === 'function') {
-        window.applyScheduleFiltersAndRender();
-    }
-    renderCart();
-    updateHeader();
 };

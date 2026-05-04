@@ -1,34 +1,97 @@
 // js/auth.js
+
 const API_URL = 'http://localhost:3000/api';
 
 let currentUser = null;
 
 function getCurrentUser() {
-    if (!currentUser) {
-        const userJson = localStorage.getItem('currentUser');
-        currentUser = userJson ? JSON.parse(userJson) : null;
-    }
     return currentUser;
 }
 
+// Сохраняем пользователя в кэш и (опционально) в localStorage для быстрой перезагрузки
 function setCurrentUser(user) {
     currentUser = user;
-    localStorage.setItem('currentUser', JSON.stringify(user));
-    migrateCartForUser(user.id);
+    if (user) {
+        localStorage.setItem('currentUser', JSON.stringify({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            photo: user.photo
+        }));
+    } else {
+        localStorage.removeItem('currentUser');
+    }
 }
 
-function logout() {
-    currentUser = null;
-    localStorage.removeItem('currentUser');
-    window.location.href = 'index.html';
+async function uploadImage(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch(`${API_URL}/upload-image`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+    });
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Ошибка загрузки');
+    }
+    const data = await res.json();
+    return data.url;
 }
 
+async function uploadFaceIdImage(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch(`${API_URL}/upload-faceid`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData
+    });
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Ошибка загрузки Face ID');
+    }
+    const data = await res.json();
+    return data.url;
+}
+
+// Асинхронная проверка авторизации при загрузке любой страницы
+async function initAuth() {
+    try {
+        const res = await fetch(`${API_URL}/me`, { credentials: 'include' });
+        if (res.ok) {
+            const user = await res.json();
+            setCurrentUser(user);
+            console.log('Пользователь авторизован:', user.name);
+            return true;
+        } else {
+            setCurrentUser(null);
+            console.log('Пользователь не авторизован');
+            return false;
+        }
+    } catch (err) {
+        console.error('Ошибка проверки авторизации:', err);
+        setCurrentUser(null);
+        return false;
+    }
+}
+
+// Выход (очищает куки и сбрасывает кэш)
+async function logout() {
+    // Просто переходим по адресу, где сервер удалит куку и перенаправит нас
+    window.location.href = '/logout';
+}
+
+// Логин (обновлённая версия, использующая bcrypt на сервере)
 async function login(email, password) {
     try {
         const response = await fetch(`${API_URL}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
+            body: JSON.stringify({ email, password }),
+            credentials: 'include'
         });
         const data = await response.json();
         if (!response.ok) {
@@ -97,15 +160,25 @@ async function addToCart(item) {
     }
 
     if (item.type === 'product') {
-        const existing = cart.find(i => i.id === item.id && i.type === 'product');
-        if (existing) {
-            existing.quantity += 1;
-        } else {
-            cart.push({ ...item, quantity: 1 });
-        }
-        saveCart(cart);
+    // Проверка остатка на складе перед добавлением
+    const productId = item.id;
+    const products = await fetchProducts();
+    const product = products.find(p => p.id === productId);
+    if (!product) return alert('Товар не найден');
+    const currentQuantity = getProductQuantity(productId);
+    if (currentQuantity + 1 > product.stock) {
+        alert(`Нельзя добавить больше, чем есть на складе (доступно: ${product.stock} шт.)`);
         return;
     }
+    const existing = cart.find(i => i.id === productId && i.type === 'product');
+    if (existing) {
+        existing.quantity += 1;
+    } else {
+        cart.push({ ...item, quantity: 1 });
+    }
+    saveCart(cart);
+    return;
+}
 
     if (item.type === 'training' || item.type === 'session') {
         const duplicate = cart.some(i => i.sessionId === item.sessionId);
@@ -406,16 +479,23 @@ async function fetchAllSpecializations() {
     return await res.json();
 }
 
+// Регистрация (также с автоматической авторизацией после успеха)
 async function register(full_name, email, phone, password) {
     try {
         const response = await fetch(`${API_URL}/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ full_name, email, phone, password })
+            body: JSON.stringify({ full_name, email, phone, password }),
+            credentials: 'include'
         });
         const data = await response.json();
         if (!response.ok) {
             return { success: false, error: data.error || 'Ошибка регистрации' };
+        }
+        // После успешной регистрации куки уже установлены, сразу получаем данные пользователя
+        const userRes = await fetch(`${API_URL}/me`, { credentials: 'include' });
+        if (userRes.ok) {
+            setCurrentUser(await userRes.json());
         }
         return { success: true, id: data.id };
     } catch (err) {

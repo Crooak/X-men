@@ -45,12 +45,13 @@
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label for="trainerSortFilter">Сортировка:</label>
-                        <select id="trainerSortFilter">
-                            <option value="">По умолчанию</option>
-                            <option value="rating_desc">По рейтингу</option>
-                        </select>
-                    </div>
+        <label for="trainerSortFilter">Сортировка:</label>
+        <select id="trainerSortFilter">
+            <option value="price_asc">Цена (сначала дешёвые)</option>
+            <option value="price_desc">Цена (сначала дорогие)</option>
+            <option value="rating_desc">Рейтинг (сначала высокий)</option>
+        </select>
+    </div>
                 </div>
                 <div class="trainers-grid" id="trainersGrid"></div>
             </div>
@@ -83,5 +84,6 @@
 
     <script src="js/auth.js"></script>
     <script src="js/main.js"></script>
+    <script src="js/cookie-consent.js"></script>
 </body>
 </html>

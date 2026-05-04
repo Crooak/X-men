@@ -339,6 +339,466 @@ nav a.active::after {
     color: var(--accent);
 }
 
+/* Бейдж "Нет в наличии" */
+.out-of-stock-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #e9ecef;
+    color: #6c757d;
+    padding: 8px 16px;
+    border-radius: 30px;
+    font-size: 14px;
+    font-weight: 500;
+    width: fit-content;
+    margin: 0 auto;
+}
+
+.out-of-stock-icon {
+    font-size: 16px;
+}
+
+/* Альтернативный вариант – заблокированная кнопка */
+.btn-out-of-stock {
+    background-color: #e9ecef;
+    color: #adb5bd;
+    cursor: not-allowed;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 30px;
+    font-weight: 500;
+    width: 100%;
+    text-align: center;
+}
+
+.btn-out-of-stock:hover {
+    background-color: #e9ecef;
+    transform: none;
+    box-shadow: none;
+}
+
+.empty-result {
+    grid-column: 1 / -1;          /* занимает всю ширину грида */
+    text-align: center;
+    padding: 60px 20px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    color: #6c757d;
+    font-size: 18px;
+    border: 1px dashed #ccc;
+    margin: 20px 0;
+}
+
+
+/* ===== Тёмная тема ===== */
+body.dark-theme {
+    --bg-light: #1e1e1e;
+    --bg-dark: #0a0a0a;
+    --white: #1e1e1e;
+    --text-dark: #f0f0f0;
+    --text-muted: #b0b0b0;
+    --shadow: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-hover: 0 8px 24px rgba(0,0,0,0.5);
+    background-color: #121212;
+    color: #f0f0f0;
+}
+
+body.dark-theme header {
+    background-color: rgba(30,30,30,0.95);
+}
+
+body.dark-theme .card {
+    background: #1e1e1e;
+    border: 1px solid #333;
+}
+
+body.dark-theme .card-title,
+body.dark-theme .profile-name,
+body.dark-theme h1, h2, h3, h4, h5, h6,
+body.dark-theme p,
+body.dark-theme span:not(.cart-count):not(.status-badge),
+body.dark-theme div:not(.cart-control):not(.slot-card),
+body.dark-theme li,
+body.dark-theme a:not(.btn),
+body.dark-theme label {
+    color: #f0f0f0 !important;
+}
+
+body.dark-theme .card-img {
+    background-color: #2a2a2a;
+    padding: 8px;
+    box-sizing: border-box;
+}
+
+body.dark-theme .text-muted {
+    color: #b0b0b0 !important;
+}
+
+body.dark-theme .btn-outline {
+    color: #3498db;
+    border-color: #3498db;
+}
+
+body.dark-theme .filter-group select,
+body.dark-theme .filter-group input,
+body.dark-theme .section-filters input,
+body.dark-theme .section-filters select {
+    background-color: #2a2a2a;
+    color: #f0f0f0;
+    border-color: #444;
+}
+
+body.dark-theme .profile-card,
+body.dark-theme .auth-form-container {
+    background: #1e1e1e;
+}
+
+body.dark-theme .profile-info-item,
+body.dark-theme .profile-bio,
+body.dark-theme #specializations-item,
+body.dark-theme #rating-item {
+    background: #2a2a2a;
+}
+
+body.dark-theme th {
+    background: #0a0a0a;
+    color: #f0f0f0;
+}
+
+body.dark-theme table {
+    background: #1e1e1e;
+}
+
+body.dark-theme tr:hover {
+    background-color: #2a2a2a;
+}
+
+body.dark-theme .empty-result {
+    background: #1e1e1e;
+    color: #ccc;
+    border-color: #444;
+}
+
+body.dark-theme .modal-content {
+    background: #1e1e1e;
+    color: #f0f0f0;
+}
+
+body.dark-theme .close-modal {
+    color: #aaa;
+}
+
+body.dark-theme .slot-card .slot-time {
+    background: #2a2a2a;
+    color: #f0f0f0;
+    border-color: #444;
+}
+
+body.dark-theme .slot-card input[type="radio"]:checked + .slot-time {
+    background: #3498db;
+    color: white;
+}
+
+body.dark-theme footer {
+    background: #0a0a0a;
+}
+
+.theme-switch-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    line-height: 1;
+}
+.theme-switch-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Принудительные цвета для светлой темы */
+body:not(.dark-theme) .card-title,
+body:not(.dark-theme) .profile-section h3,
+body:not(.dark-theme) .card-body h3,
+body:not(.dark-theme) .schedule-grid .card-title {
+    color: var(--bg-dark) !important;
+}
+
+body:not(.dark-theme) .card-body p,
+body:not(.dark-theme) .card-text,
+body:not(.dark-theme) .schedule-grid .card-body p {
+    color: var(--text-muted) !important;
+}
+
+
+/* Усиление цвета цены на странице услуг в светлой теме */
+body:not(.dark-theme) .services-grid .card-body strong {
+    color: #1a1a1a !important;
+    font-weight: 700;
+}
+
+/* Тёмная тема: приглушение элементов регистрации/входа */
+body.dark-theme .form-group input,
+body.dark-theme .form-group select,
+body.dark-theme .form-group textarea {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+    border-color: #555 !important;
+}
+
+body.dark-theme .form-group label {
+    color: #ccc !important;
+}
+
+body.dark-theme .demo-btn {
+    background-color: #2a2a2a !important;
+    color: #e0e0e0 !important;
+    border: 1px solid #555 !important;
+}
+
+body.dark-theme .demo-btn:hover {
+    background-color: #3498db !important;
+    color: white !important;
+}
+
+body.dark-theme .auth-tabs .tab-btn {
+    color: #aaa !important;
+}
+
+body.dark-theme .auth-tabs .tab-btn.active {
+    color: #3498db !important;
+}
+
+body.dark-theme .auth-tabs .tab-btn.active::after {
+    background: #3498db !important;
+}
+
+/* Тёмная тема: таблицы в личном кабинете – мягкие контуры и чуть светлые ячейки */
+body.dark-theme .table-scroll {
+    border-color: #3a3a3a !important;
+}
+
+body.dark-theme table {
+    background-color: #1e1e1e !important;
+}
+
+body.dark-theme th {
+    background: #0f0f0f !important;
+    color: #ddd !important;
+    border-bottom: 1px solid #3a3a3a !important;
+}
+
+body.dark-theme td {
+    background-color: #2a2a2a !important;  /* чуть светлее фона карточки */
+    color: #e0e0e0 !important;
+    border-bottom: 1px solid #3a3a3a !important;
+}
+
+body.dark-theme tr:hover td {
+    background-color: #353535 !important;
+}
+
+body.dark-theme .profile-section .table-scroll {
+    border: 1px solid #3a3a3a;
+}
+
+body.dark-theme .profile-section td,
+body.dark-theme .profile-section th {
+    border-color: #3a3a3a !important;
+}
+
+/* Принудительные цвета для звёзд рейтинга в тёмной теме */
+body.dark-theme .rating-star,
+body.dark-theme .rating-star:not(.filled) {
+    color: #ffc107 !important; /* пустые звёзды – серые, но видны */
+}
+
+body.dark-theme .rating-star.filled {
+    color: #ffc107 !important; /* заполненные – золотистые */
+}
+
+body.dark-theme .rating-star:hover,
+body.dark-theme .rating-star.hover {
+    color: #ffda66 !important; /* при наведении – ярче */
+}
+
+/* Дополнительно – для случаев, если звёзды обёрнуты в div */
+body.dark-theme .rating-stars .rating-star.filled {
+    color: #ffc107 !important;
+}
+
+
+/* Тёмная тема: иконка корзины светлая */
+body.dark-theme .cart-icon svg {
+    fill: #f0f0f0 !important;
+}
+
+body.dark-theme .cart-icon:hover svg {
+    fill: #3498db !important;
+}
+
+/* Кнопка переключения темы – тоже светлая */
+body.dark-theme .theme-switch-btn svg {
+    stroke: #f0f0f0 !important;
+}
+
+body.dark-theme .theme-switch-btn:hover svg {
+    stroke: #3498db !important;
+}
+
+/* Светлая тема: заголовки форм входа/регистрации */
+body:not(.dark-theme) .auth-form h2,
+body:not(.dark-theme) .auth-tabs .tab-btn {
+    color: var(--bg-dark) !important;
+}
+
+/* Светлая тема: заголовки модальных окон (контакты, заметки и др.) */
+body:not(.dark-theme) .modal h3 {
+    color: var(--bg-dark) !important;
+}
+
+/* Тёмная тема: заголовки модальных окон (для уверенности) */
+body.dark-theme .modal h3 {
+    color: #f0f0f0 !important;
+}
+/* Светлая тема: заголовки на главной странице и другие */
+body:not(.dark-theme) h2,
+body:not(.dark-theme) h3,
+body:not(.dark-theme) h4,
+body:not(.dark-theme) .about-card h3,
+body:not(.dark-theme) .preview-trainers h2,
+body:not(.dark-theme) .preview-products h2,
+body:not(.dark-theme) .work-hours h2,
+body:not(.dark-theme) .profile-section h3,
+body:not(.dark-theme) .cart-summary h3 {
+    color: var(--bg-dark) !important;
+}
+
+
+/* Стили для вкладок загрузки изображений */
+.image-input-group {
+    margin-top: 5px;
+}
+.image-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.image-tab-btn {
+    padding: 4px 12px;
+    background: #eee;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+.image-tab-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+.image-tab {
+    margin-top: 5px;
+}
+.image-tab input[type="file"] {
+    padding: 6px 0;
+}
+
+
+
+/* Компонент загрузки изображений */
+.image-upload-wrapper {
+    margin-top: 10px;
+}
+.image-upload-tabs {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+.image-tab-btn {
+    padding: 6px 18px;
+    background: #f0f0f0;
+    border: none;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.image-tab-btn.active {
+    background: var(--accent-gradient);
+    color: white;
+    box-shadow: 0 2px 6px rgba(52,152,219,0.3);
+}
+.image-url-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: 0.2s;
+}
+.image-url-input:focus {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(52,152,219,0.2);
+}
+.file-input-area {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.file-upload-label {
+    cursor: pointer;
+    margin: 0;
+    background: var(--accent-gradient);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-block;
+    transition: 0.2s;
+}
+.file-upload-label:hover {
+    transform: scale(1.02);
+    box-shadow: 0 2px 8px rgba(52,152,219,0.4);
+}
+.image-preview {
+    position: relative;
+    display: inline-block;
+}
+.preview-img {
+    max-width: 80px;
+    max-height: 80px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    object-fit: cover;
+}
+.remove-preview {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #e74c3c;
+    color: white;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.remove-preview:hover {
+    background: #c0392b;
+    transform: scale(1.1);
+}
+
+
+
 @media (max-width: 768px) {
     .profile-name-row {
         flex-direction: column;

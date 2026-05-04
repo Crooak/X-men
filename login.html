@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Вход | Xmen Fitness</title>
     <link rel="stylesheet" href="css/style.css">
-    <!-- Подключаем библиотеку для маски телефона (IMask) -->
     <script src="https://unpkg.com/imask"></script>
 </head>
 <body>
@@ -40,8 +39,8 @@
                     <h2>Вход в личный кабинет</h2>
                     <form id="loginFormElement">
                         <div class="form-group">
-                            <label for="loginEmail">Email или телефон</label>
-                            <input type="text" id="loginEmail" placeholder="example@mail.ru или +7..." required>
+                            <label for="loginEmail">Email</label>
+                            <input type="text" id="loginEmail" placeholder="example@mail.ru" required>
                         </div>
                         <div class="form-group">
                             <label for="loginPassword">Пароль</label>
@@ -170,15 +169,12 @@
         }
 
         function validateEmail(email) {
-            // Проверка на наличие @
             if (!email.includes('@')) return false;
-            // Проверка допустимых символов (буквы, цифры, точка, дефис, подчёркивание)
             const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
             return emailRegex.test(email);
         }
 
         function validatePassword(password) {
-            // Разрешены только латинские буквы, цифры, _, -
             const passwordRegex = /^[a-zA-Z0-9_-]+$/;
             return passwordRegex.test(password);
         }
@@ -187,18 +183,16 @@
         document.getElementById('registerFormElement').addEventListener('submit', async function(e) {
             e.preventDefault();
 
-            // Очищаем предыдущие ошибки
             document.querySelectorAll('.error-message').forEach(el => el.textContent = '');
 
             const name = document.getElementById('regName').value.trim();
-            const phone = phoneMask.unmaskedValue; // получаем только цифры
+            const phone = phoneMask.unmaskedValue;
             const email = document.getElementById('regEmail').value.trim();
             const password = document.getElementById('regPassword').value;
             const confirm = document.getElementById('regConfirm').value;
 
             let isValid = true;
 
-            // Валидация ФИО
             if (!name) {
                 document.getElementById('nameError').textContent = 'Введите ФИО';
                 isValid = false;
@@ -207,7 +201,6 @@
                 isValid = false;
             }
 
-            // Валидация телефона
             if (!phone) {
                 document.getElementById('phoneError').textContent = 'Введите номер телефона';
                 isValid = false;
@@ -216,16 +209,14 @@
                 isValid = false;
             }
 
-            // Валидация email
             if (!email) {
                 document.getElementById('emailError').textContent = 'Введите email';
                 isValid = false;
             } else if (!validateEmail(email)) {
-                document.getElementById('emailError').textContent = 'Некорректный email (допустимы буквы, цифры, . _ -)';
+                document.getElementById('emailError').textContent = 'Некорректный email';
                 isValid = false;
             }
 
-            // Валидация пароля
             if (!password) {
                 document.getElementById('passwordError').textContent = 'Введите пароль';
                 isValid = false;
@@ -234,7 +225,6 @@
                 isValid = false;
             }
 
-            // Валидация подтверждения
             if (!confirm) {
                 document.getElementById('confirmError').textContent = 'Подтвердите пароль';
                 isValid = false;
@@ -245,7 +235,6 @@
 
             if (!isValid) return;
 
-            // Формируем номер для отправки в формате с +7
             const fullPhone = '+7' + phone;
 
             const regResult = await register(name, email, fullPhone, password);
@@ -253,20 +242,10 @@
                 alert(regResult.error);
                 return;
             }
-            // Регистрация успешна, автоматически выполняем вход
-            if (await login(email, password)) {
-                window.location.href = 'profile.html';
-            } else {
-                alert('Ошибка при автоматическом входе. Попробуйте войти вручную.');
-            }
+
+            // После успешной регистрации токен уже в cookie, сразу переходим
+            window.location.href = 'profile.html';
         });
     </script>
-    <style>
-        .error-message {
-            color: #e74c3c;
-            font-size: 13px;
-            margin-top: 5px;
-        }
-    </style>
 </body>
 </html>
